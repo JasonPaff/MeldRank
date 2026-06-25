@@ -1,0 +1,19 @@
+# Keep build contexts small and avoid copying host-specific artifacts (notably
+# node_modules symlinks) into images. Deps are reinstalled from the lockfile.
+**/node_modules
+**/.next
+**/dist
+**/build
+**/out
+**/.turbo
+**/coverage
+**/*.tsbuildinfo
+.git
+.github
+.idea
+.vscode
+**/*.log
+.env
+.env.*
+!.env.example
+openspec

@@ -1,257 +1,257 @@
 {
-	"assets": [
-		{
-			"dependencies": [],
-			"description": "Comprehensive reference guide for the Agentic Tool Kit (ATK) CLI and web app — covers every command, non-interactive flags for scripted/agent-driven use (publish, init, install, etc.), JSON output mode, core concepts (lockfile, tool adapters, trust levels, checksums), authentication, and troubleshooting. Use when the user asks how to do something in ATK, wants to know what a flag does, is debugging an ATK error, is authoring or publishing a new asset, asks Claude to publish/install/manage assets on their behalf, or needs clarification on ATK concepts like setup, sync, pin/freeze, or the org scope.",
-			"files": [
-				{
-					"checksum": "030a699c7a13e12533b7a95b4d9e9b04a82796f9a238e782ffd49bc9b4d24616",
-					"installedPath": ".claude/skills/atk-guide/SKILL.md",
-					"sourcePath": "SKILL.md"
-				},
-				{
-					"checksum": "935c64aef48487402bf595ae158a85712538a0d0a93cfd299f35b031b355e7aa",
-					"installedPath": ".claude/skills/atk-guide/references/audit.md",
-					"sourcePath": "references/audit.md"
-				},
-				{
-					"checksum": "6b253d6b6ea3af11b2ba3b899136ebd531ba5a3533b128d98486e9b39db0c484",
-					"installedPath": ".claude/skills/atk-guide/references/authentication.md",
-					"sourcePath": "references/authentication.md"
-				},
-				{
-					"checksum": "f60cdcb1bc86e6121c15ac8f084242b408cfb99ba1d408e14fdc31f3ef8be25e",
-					"installedPath": ".claude/skills/atk-guide/references/browse.md",
-					"sourcePath": "references/browse.md"
-				},
-				{
-					"checksum": "fa1f05c40af5fcbd7813c6021ab97ea8f138cb4f0a3cb401ce55e5a7b0268621",
-					"installedPath": ".claude/skills/atk-guide/references/cache.md",
-					"sourcePath": "references/cache.md"
-				},
-				{
-					"checksum": "df5395585bb3c94bdd78efc14d07e2127d186f197fc99913aa790263669d5961",
-					"installedPath": ".claude/skills/atk-guide/references/checkout.md",
-					"sourcePath": "references/checkout.md"
-				},
-				{
-					"checksum": "d9b9e6b3fdd4397c80b50794f931229776ac0f7707fa98f452722f285de34220",
-					"installedPath": ".claude/skills/atk-guide/references/concepts.md",
-					"sourcePath": "references/concepts.md"
-				},
-				{
-					"checksum": "57c9be82f9be9045eece732ecf23fce2e4991b44800c7c2e3301db73313f25a4",
-					"installedPath": ".claude/skills/atk-guide/references/config.md",
-					"sourcePath": "references/config.md"
-				},
-				{
-					"checksum": "93d99462c33ae5606ed288768855f93ebe626113a68442343559da71d32cba71",
-					"installedPath": ".claude/skills/atk-guide/references/diff.md",
-					"sourcePath": "references/diff.md"
-				},
-				{
-					"checksum": "7f25841e1cdb1a6fd18578c250178fd032686a01df90f5d95e15fcd06a2b024f",
-					"installedPath": ".claude/skills/atk-guide/references/doctor.md",
-					"sourcePath": "references/doctor.md"
-				},
-				{
-					"checksum": "5f84ea63ff64036593ab6d9247bdb948234885ce9f930893dd6f89ef7ed866df",
-					"installedPath": ".claude/skills/atk-guide/references/freeze.md",
-					"sourcePath": "references/freeze.md"
-				},
-				{
-					"checksum": "90c5afa4e35e6420ff03a8537bcd8ef095994c47e5c36069c51ad2195e9f9f1e",
-					"installedPath": ".claude/skills/atk-guide/references/info.md",
-					"sourcePath": "references/info.md"
-				},
-				{
-					"checksum": "9a8a232033e5745e06988651da0067cb95462378e5699cdc5092517bc62e32da",
-					"installedPath": ".claude/skills/atk-guide/references/init.md",
-					"sourcePath": "references/init.md"
-				},
-				{
-					"checksum": "20a40cea66d157691f38e2a7c48f09303ef4e9c6deb0621be234d91eaf7c331b",
-					"installedPath": ".claude/skills/atk-guide/references/install.md",
-					"sourcePath": "references/install.md"
-				},
-				{
-					"checksum": "ed81b2f7ccad614b6eb5cbe90ca9d3810ce92eb5048db2bca1c6c8f63f722d90",
-					"installedPath": ".claude/skills/atk-guide/references/list.md",
-					"sourcePath": "references/list.md"
-				},
-				{
-					"checksum": "0f9611ca06ccf2cb7718f1217c2803739bb4309cceb58cd61fe2ece176f9e0a2",
-					"installedPath": ".claude/skills/atk-guide/references/outdated.md",
-					"sourcePath": "references/outdated.md"
-				},
-				{
-					"checksum": "f7e296dcaceb3d2a3653414a7b36c421347cf4a1ce26131ba2b305ab70069e99",
-					"installedPath": ".claude/skills/atk-guide/references/overview.md",
-					"sourcePath": "references/overview.md"
-				},
-				{
-					"checksum": "3b4ff17ee759f85369e29e9aa9fceb8ec31bd13da8a7e419f670c4e99f6ba4f5",
-					"installedPath": ".claude/skills/atk-guide/references/pin.md",
-					"sourcePath": "references/pin.md"
-				},
-				{
-					"checksum": "3139326aec4c5aafdfed4d5bf62be6059f6474077a2f71e7ba01b528781b8a09",
-					"installedPath": ".claude/skills/atk-guide/references/promote.md",
-					"sourcePath": "references/promote.md"
-				},
-				{
-					"checksum": "5dae00e06f19a9e478554117dd4cc9dbc385dcc6e0365e9ce8b7f74de95bf460",
-					"installedPath": ".claude/skills/atk-guide/references/prune.md",
-					"sourcePath": "references/prune.md"
-				},
-				{
-					"checksum": "0141b2b55e30a29b805359874dcf662ddf4980b3b0d5f9b962d9c59a88dc3d81",
-					"installedPath": ".claude/skills/atk-guide/references/publish.md",
-					"sourcePath": "references/publish.md"
-				},
-				{
-					"checksum": "8df2ef35df88279818596b7a308c8e4ed97522bc1deb4fe4cb5498fd72e839fa",
-					"installedPath": ".claude/skills/atk-guide/references/register.md",
-					"sourcePath": "references/register.md"
-				},
-				{
-					"checksum": "53e6ef25b32903670b3a57b7ae9fec6efb4178c63e34c1afce19f71b56a74221",
-					"installedPath": ".claude/skills/atk-guide/references/schema.md",
-					"sourcePath": "references/schema.md"
-				},
-				{
-					"checksum": "0af7e0d0fc68ee4451e6a571a2fe1f1a3cf5cf488723a3d1c4ae9dd9af9d61f1",
-					"installedPath": ".claude/skills/atk-guide/references/search.md",
-					"sourcePath": "references/search.md"
-				},
-				{
-					"checksum": "fa265970210c0d32e0bff854e442eacf6e5230d8cc80441868159b6bc05458b6",
-					"installedPath": ".claude/skills/atk-guide/references/setup.md",
-					"sourcePath": "references/setup.md"
-				},
-				{
-					"checksum": "0aefd40cb96c92385dea6c4949d62fc8bbe09801ddead706f900b1df97327a3f",
-					"installedPath": ".claude/skills/atk-guide/references/sync.md",
-					"sourcePath": "references/sync.md"
-				},
-				{
-					"checksum": "f0cccc8e922a29ee2e2a48667553f0d66c186e29bf29a9d6ec2433890f54230c",
-					"installedPath": ".claude/skills/atk-guide/references/thaw.md",
-					"sourcePath": "references/thaw.md"
-				},
-				{
-					"checksum": "89e2ffe7db840055a3acccc8bb8bc9b79d23e2ac7c70b692ae438abc26ee9f15",
-					"installedPath": ".claude/skills/atk-guide/references/troubleshooting.md",
-					"sourcePath": "references/troubleshooting.md"
-				},
-				{
-					"checksum": "aaa97c06b89abed5f48808b7f23dfdb835b329190eb860c682fa50d404611118",
-					"installedPath": ".claude/skills/atk-guide/references/uninstall.md",
-					"sourcePath": "references/uninstall.md"
-				},
-				{
-					"checksum": "9628642f00866ff97a50c7a144fdbb77cbab0bcecd161e227d330ecbc3a72e7e",
-					"installedPath": ".claude/skills/atk-guide/references/unpin.md",
-					"sourcePath": "references/unpin.md"
-				},
-				{
-					"checksum": "3fe94132a7b4eceda6e6dc526ec8ab3ff6e8f801871fedb06b1e25b929816707",
-					"installedPath": ".claude/skills/atk-guide/references/unpublish.md",
-					"sourcePath": "references/unpublish.md"
-				},
-				{
-					"checksum": "476fa91aaee15910cb8673d35474d096558c8678298650e6f7f153dce7f646b8",
-					"installedPath": ".claude/skills/atk-guide/references/update.md",
-					"sourcePath": "references/update.md"
-				},
-				{
-					"checksum": "653f675afbdb764bba71011c02e5ae73b853b1ca51930416e3ee21f08b2e27d7",
-					"installedPath": ".claude/skills/atk-guide/references/web/browse.md",
-					"sourcePath": "references/web/browse.md"
-				},
-				{
-					"checksum": "f38ef8683af4fd7354d3990f1b9844e4074d229f39b29c6af3a1d09ebbb1266e",
-					"installedPath": ".claude/skills/atk-guide/references/web/bundle.md",
-					"sourcePath": "references/web/bundle.md"
-				},
-				{
-					"checksum": "3d11716555a0ee6843abe6cd5bb09193d2820cc8338f21caed1bdd7679f22b82",
-					"installedPath": ".claude/skills/atk-guide/references/web/contribute.md",
-					"sourcePath": "references/web/contribute.md"
-				},
-				{
-					"checksum": "223cf97362abc12906564576fc77b062eb13fc299a2a0f8b18f3012f978d620c",
-					"installedPath": ".claude/skills/atk-guide/references/web/overview.md",
-					"sourcePath": "references/web/overview.md"
-				},
-				{
-					"checksum": "901a13de50580affba55cd02ac59c316551ad10f9f63c78caec19c39a667f899",
-					"installedPath": ".claude/skills/atk-guide/references/web/sign-in.md",
-					"sourcePath": "references/web/sign-in.md"
-				},
-				{
-					"checksum": "2f09fe3a97b97b4d2a01f4f329292ad83a16c580ecfc5c8d947eb16b229c6c50",
-					"installedPath": ".claude/skills/atk-guide/references/why.md",
-					"sourcePath": "references/why.md"
-				}
-			],
-			"installedAt": "2026-06-25T18:24:29.749Z",
-			"installReason": "direct",
-			"name": "atk-guide",
-			"type": "skill",
-			"version": "1.3.0"
-		},
-		{
-			"dependencies": [],
-			"description": "Create a Conventional Commits formatted commit",
-			"files": [
-				{
-					"checksum": "71f01976b5d66af540bb000b7a73075b4ca2dd87a7f575631be38e68b994e6e1",
-					"installedPath": ".claude/skills/conventional-commit/SKILL.md",
-					"sourcePath": "SKILL.md"
-				}
-			],
-			"installedAt": "2026-06-25T18:24:52.152Z",
-			"installReason": "direct",
-			"name": "conventional-commit",
-			"org": "agentic-toolkit",
-			"type": "skill",
-			"version": "1.0.0"
-		},
-		{
-			"dependencies": [],
-			"description": "This rule ensures the agent uses the validate agent for running the projects validation commands (lint, typecheck, tests)",
-			"files": [
-				{
-					"checksum": "07b9425c82fd24a6c8185821368662856e8fd506c82537f006df296fed2a17dd",
-					"installedPath": ".claude/rules/dev-commands-rule.md",
-					"sourcePath": "dev-commands-rule.md"
-				}
-			],
-			"installedAt": "2026-06-25T18:25:03.770Z",
-			"installReason": "direct",
-			"name": "dev-commands-rule",
-			"org": "agentic-toolkit",
-			"type": "rule",
-			"version": "1.0.0"
-		},
-		{
-			"dependencies": [],
-			"description": "Runs lint, typecheck, and test commands and returns a concise summary of the results.",
-			"files": [
-				{
-					"checksum": "56c5e7bee8a41eeecb6d0f5f8e9b90d33a4a4f6b0404ae1524a9ae187a0f789a",
-					"installedPath": ".claude/agents/validate.md",
-					"sourcePath": "validate.md"
-				}
-			],
-			"installedAt": "2026-06-25T18:26:40.435Z",
-			"installReason": "direct",
-			"name": "validate",
-			"org": "agentic-toolkit",
-			"type": "agent",
-			"version": "1.0.0"
-		}
-	],
-	"lockVersion": 1
+  "assets": [
+    {
+      "dependencies": [],
+      "description": "Comprehensive reference guide for the Agentic Tool Kit (ATK) CLI and web app — covers every command, non-interactive flags for scripted/agent-driven use (publish, init, install, etc.), JSON output mode, core concepts (lockfile, tool adapters, trust levels, checksums), authentication, and troubleshooting. Use when the user asks how to do something in ATK, wants to know what a flag does, is debugging an ATK error, is authoring or publishing a new asset, asks Claude to publish/install/manage assets on their behalf, or needs clarification on ATK concepts like setup, sync, pin/freeze, or the org scope.",
+      "files": [
+        {
+          "checksum": "030a699c7a13e12533b7a95b4d9e9b04a82796f9a238e782ffd49bc9b4d24616",
+          "installedPath": ".claude/skills/atk-guide/SKILL.md",
+          "sourcePath": "SKILL.md"
+        },
+        {
+          "checksum": "935c64aef48487402bf595ae158a85712538a0d0a93cfd299f35b031b355e7aa",
+          "installedPath": ".claude/skills/atk-guide/references/audit.md",
+          "sourcePath": "references/audit.md"
+        },
+        {
+          "checksum": "6b253d6b6ea3af11b2ba3b899136ebd531ba5a3533b128d98486e9b39db0c484",
+          "installedPath": ".claude/skills/atk-guide/references/authentication.md",
+          "sourcePath": "references/authentication.md"
+        },
+        {
+          "checksum": "f60cdcb1bc86e6121c15ac8f084242b408cfb99ba1d408e14fdc31f3ef8be25e",
+          "installedPath": ".claude/skills/atk-guide/references/browse.md",
+          "sourcePath": "references/browse.md"
+        },
+        {
+          "checksum": "fa1f05c40af5fcbd7813c6021ab97ea8f138cb4f0a3cb401ce55e5a7b0268621",
+          "installedPath": ".claude/skills/atk-guide/references/cache.md",
+          "sourcePath": "references/cache.md"
+        },
+        {
+          "checksum": "df5395585bb3c94bdd78efc14d07e2127d186f197fc99913aa790263669d5961",
+          "installedPath": ".claude/skills/atk-guide/references/checkout.md",
+          "sourcePath": "references/checkout.md"
+        },
+        {
+          "checksum": "d9b9e6b3fdd4397c80b50794f931229776ac0f7707fa98f452722f285de34220",
+          "installedPath": ".claude/skills/atk-guide/references/concepts.md",
+          "sourcePath": "references/concepts.md"
+        },
+        {
+          "checksum": "57c9be82f9be9045eece732ecf23fce2e4991b44800c7c2e3301db73313f25a4",
+          "installedPath": ".claude/skills/atk-guide/references/config.md",
+          "sourcePath": "references/config.md"
+        },
+        {
+          "checksum": "93d99462c33ae5606ed288768855f93ebe626113a68442343559da71d32cba71",
+          "installedPath": ".claude/skills/atk-guide/references/diff.md",
+          "sourcePath": "references/diff.md"
+        },
+        {
+          "checksum": "7f25841e1cdb1a6fd18578c250178fd032686a01df90f5d95e15fcd06a2b024f",
+          "installedPath": ".claude/skills/atk-guide/references/doctor.md",
+          "sourcePath": "references/doctor.md"
+        },
+        {
+          "checksum": "5f84ea63ff64036593ab6d9247bdb948234885ce9f930893dd6f89ef7ed866df",
+          "installedPath": ".claude/skills/atk-guide/references/freeze.md",
+          "sourcePath": "references/freeze.md"
+        },
+        {
+          "checksum": "90c5afa4e35e6420ff03a8537bcd8ef095994c47e5c36069c51ad2195e9f9f1e",
+          "installedPath": ".claude/skills/atk-guide/references/info.md",
+          "sourcePath": "references/info.md"
+        },
+        {
+          "checksum": "9a8a232033e5745e06988651da0067cb95462378e5699cdc5092517bc62e32da",
+          "installedPath": ".claude/skills/atk-guide/references/init.md",
+          "sourcePath": "references/init.md"
+        },
+        {
+          "checksum": "20a40cea66d157691f38e2a7c48f09303ef4e9c6deb0621be234d91eaf7c331b",
+          "installedPath": ".claude/skills/atk-guide/references/install.md",
+          "sourcePath": "references/install.md"
+        },
+        {
+          "checksum": "ed81b2f7ccad614b6eb5cbe90ca9d3810ce92eb5048db2bca1c6c8f63f722d90",
+          "installedPath": ".claude/skills/atk-guide/references/list.md",
+          "sourcePath": "references/list.md"
+        },
+        {
+          "checksum": "0f9611ca06ccf2cb7718f1217c2803739bb4309cceb58cd61fe2ece176f9e0a2",
+          "installedPath": ".claude/skills/atk-guide/references/outdated.md",
+          "sourcePath": "references/outdated.md"
+        },
+        {
+          "checksum": "f7e296dcaceb3d2a3653414a7b36c421347cf4a1ce26131ba2b305ab70069e99",
+          "installedPath": ".claude/skills/atk-guide/references/overview.md",
+          "sourcePath": "references/overview.md"
+        },
+        {
+          "checksum": "3b4ff17ee759f85369e29e9aa9fceb8ec31bd13da8a7e419f670c4e99f6ba4f5",
+          "installedPath": ".claude/skills/atk-guide/references/pin.md",
+          "sourcePath": "references/pin.md"
+        },
+        {
+          "checksum": "3139326aec4c5aafdfed4d5bf62be6059f6474077a2f71e7ba01b528781b8a09",
+          "installedPath": ".claude/skills/atk-guide/references/promote.md",
+          "sourcePath": "references/promote.md"
+        },
+        {
+          "checksum": "5dae00e06f19a9e478554117dd4cc9dbc385dcc6e0365e9ce8b7f74de95bf460",
+          "installedPath": ".claude/skills/atk-guide/references/prune.md",
+          "sourcePath": "references/prune.md"
+        },
+        {
+          "checksum": "0141b2b55e30a29b805359874dcf662ddf4980b3b0d5f9b962d9c59a88dc3d81",
+          "installedPath": ".claude/skills/atk-guide/references/publish.md",
+          "sourcePath": "references/publish.md"
+        },
+        {
+          "checksum": "8df2ef35df88279818596b7a308c8e4ed97522bc1deb4fe4cb5498fd72e839fa",
+          "installedPath": ".claude/skills/atk-guide/references/register.md",
+          "sourcePath": "references/register.md"
+        },
+        {
+          "checksum": "53e6ef25b32903670b3a57b7ae9fec6efb4178c63e34c1afce19f71b56a74221",
+          "installedPath": ".claude/skills/atk-guide/references/schema.md",
+          "sourcePath": "references/schema.md"
+        },
+        {
+          "checksum": "0af7e0d0fc68ee4451e6a571a2fe1f1a3cf5cf488723a3d1c4ae9dd9af9d61f1",
+          "installedPath": ".claude/skills/atk-guide/references/search.md",
+          "sourcePath": "references/search.md"
+        },
+        {
+          "checksum": "fa265970210c0d32e0bff854e442eacf6e5230d8cc80441868159b6bc05458b6",
+          "installedPath": ".claude/skills/atk-guide/references/setup.md",
+          "sourcePath": "references/setup.md"
+        },
+        {
+          "checksum": "0aefd40cb96c92385dea6c4949d62fc8bbe09801ddead706f900b1df97327a3f",
+          "installedPath": ".claude/skills/atk-guide/references/sync.md",
+          "sourcePath": "references/sync.md"
+        },
+        {
+          "checksum": "f0cccc8e922a29ee2e2a48667553f0d66c186e29bf29a9d6ec2433890f54230c",
+          "installedPath": ".claude/skills/atk-guide/references/thaw.md",
+          "sourcePath": "references/thaw.md"
+        },
+        {
+          "checksum": "89e2ffe7db840055a3acccc8bb8bc9b79d23e2ac7c70b692ae438abc26ee9f15",
+          "installedPath": ".claude/skills/atk-guide/references/troubleshooting.md",
+          "sourcePath": "references/troubleshooting.md"
+        },
+        {
+          "checksum": "aaa97c06b89abed5f48808b7f23dfdb835b329190eb860c682fa50d404611118",
+          "installedPath": ".claude/skills/atk-guide/references/uninstall.md",
+          "sourcePath": "references/uninstall.md"
+        },
+        {
+          "checksum": "9628642f00866ff97a50c7a144fdbb77cbab0bcecd161e227d330ecbc3a72e7e",
+          "installedPath": ".claude/skills/atk-guide/references/unpin.md",
+          "sourcePath": "references/unpin.md"
+        },
+        {
+          "checksum": "3fe94132a7b4eceda6e6dc526ec8ab3ff6e8f801871fedb06b1e25b929816707",
+          "installedPath": ".claude/skills/atk-guide/references/unpublish.md",
+          "sourcePath": "references/unpublish.md"
+        },
+        {
+          "checksum": "476fa91aaee15910cb8673d35474d096558c8678298650e6f7f153dce7f646b8",
+          "installedPath": ".claude/skills/atk-guide/references/update.md",
+          "sourcePath": "references/update.md"
+        },
+        {
+          "checksum": "653f675afbdb764bba71011c02e5ae73b853b1ca51930416e3ee21f08b2e27d7",
+          "installedPath": ".claude/skills/atk-guide/references/web/browse.md",
+          "sourcePath": "references/web/browse.md"
+        },
+        {
+          "checksum": "f38ef8683af4fd7354d3990f1b9844e4074d229f39b29c6af3a1d09ebbb1266e",
+          "installedPath": ".claude/skills/atk-guide/references/web/bundle.md",
+          "sourcePath": "references/web/bundle.md"
+        },
+        {
+          "checksum": "3d11716555a0ee6843abe6cd5bb09193d2820cc8338f21caed1bdd7679f22b82",
+          "installedPath": ".claude/skills/atk-guide/references/web/contribute.md",
+          "sourcePath": "references/web/contribute.md"
+        },
+        {
+          "checksum": "223cf97362abc12906564576fc77b062eb13fc299a2a0f8b18f3012f978d620c",
+          "installedPath": ".claude/skills/atk-guide/references/web/overview.md",
+          "sourcePath": "references/web/overview.md"
+        },
+        {
+          "checksum": "901a13de50580affba55cd02ac59c316551ad10f9f63c78caec19c39a667f899",
+          "installedPath": ".claude/skills/atk-guide/references/web/sign-in.md",
+          "sourcePath": "references/web/sign-in.md"
+        },
+        {
+          "checksum": "2f09fe3a97b97b4d2a01f4f329292ad83a16c580ecfc5c8d947eb16b229c6c50",
+          "installedPath": ".claude/skills/atk-guide/references/why.md",
+          "sourcePath": "references/why.md"
+        }
+      ],
+      "installedAt": "2026-06-25T18:24:29.749Z",
+      "installReason": "direct",
+      "name": "atk-guide",
+      "type": "skill",
+      "version": "1.3.0"
+    },
+    {
+      "dependencies": [],
+      "description": "Create a Conventional Commits formatted commit",
+      "files": [
+        {
+          "checksum": "71f01976b5d66af540bb000b7a73075b4ca2dd87a7f575631be38e68b994e6e1",
+          "installedPath": ".claude/skills/conventional-commit/SKILL.md",
+          "sourcePath": "SKILL.md"
+        }
+      ],
+      "installedAt": "2026-06-25T18:24:52.152Z",
+      "installReason": "direct",
+      "name": "conventional-commit",
+      "org": "agentic-toolkit",
+      "type": "skill",
+      "version": "1.0.0"
+    },
+    {
+      "dependencies": [],
+      "description": "This rule ensures the agent uses the validate agent for running the projects validation commands (lint, typecheck, tests)",
+      "files": [
+        {
+          "checksum": "07b9425c82fd24a6c8185821368662856e8fd506c82537f006df296fed2a17dd",
+          "installedPath": ".claude/rules/dev-commands-rule.md",
+          "sourcePath": "dev-commands-rule.md"
+        }
+      ],
+      "installedAt": "2026-06-25T18:25:03.770Z",
+      "installReason": "direct",
+      "name": "dev-commands-rule",
+      "org": "agentic-toolkit",
+      "type": "rule",
+      "version": "1.0.0"
+    },
+    {
+      "dependencies": [],
+      "description": "Runs lint, typecheck, and test commands and returns a concise summary of the results.",
+      "files": [
+        {
+          "checksum": "56c5e7bee8a41eeecb6d0f5f8e9b90d33a4a4f6b0404ae1524a9ae187a0f789a",
+          "installedPath": ".claude/agents/validate.md",
+          "sourcePath": "validate.md"
+        }
+      ],
+      "installedAt": "2026-06-25T18:26:40.435Z",
+      "installReason": "direct",
+      "name": "validate",
+      "org": "agentic-toolkit",
+      "type": "agent",
+      "version": "1.0.0"
+    }
+  ],
+  "lockVersion": 1
 }

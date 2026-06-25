@@ -7,6 +7,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./server": {
+      "types": "./src/server/index.ts",
+      "default": "./src/server/index.ts"
     }
   },
   "main": "./src/index.ts",
@@ -18,9 +22,13 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
+    "@upstash/redis": "^1.38.0",
+    "drizzle-orm": "^0.45.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/node": "^22.20.0",
     "eslint": "^10.5.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"

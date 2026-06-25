@@ -1,0 +1,16 @@
+# Fly.io deploy descriptor for the Bots worker. This is a headless worker with
+# no inbound service, so no [http_service] block. App name and region are
+# placeholders the operator sets at provisioning time (see infra/README.md).
+# Secrets are supplied via `fly secrets`, never here.
+app = "meldrank-bots"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

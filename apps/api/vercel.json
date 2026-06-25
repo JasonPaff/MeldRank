@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "cd ../.. && pnpm turbo run build --filter=@meldrank/api",
+  "ignoreCommand": "cd ../.. && pnpm turbo-ignore @meldrank/api"
+}

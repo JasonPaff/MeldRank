@@ -1,7 +1,6 @@
 import { Server } from 'colyseus';
 import { healthy } from '@meldrank/shared';
-
-const port = Number(process.env.PORT ?? 2567);
+import { createDb, createRedis, loadMatchEnv } from '@meldrank/shared/server';
 
 /**
  * Realtime Match Service stub. Real rooms (match lifecycle, seating, turns) land
@@ -12,7 +11,16 @@ const port = Number(process.env.PORT ?? 2567);
 export const gameServer = new Server();
 
 if (process.env.NODE_ENV !== 'test') {
+  // Validate the environment once at boot (fail-fast), then construct the
+  // foundation clients. No domain use yet — this only proves the wiring.
+  const env = loadMatchEnv();
+  const db = createDb(env);
+  const redis = createRedis(env);
+
+  const port = env.PORT ?? 2567;
   const status = healthy('match');
   void gameServer.listen(port);
-  console.log(`[match] Colyseus stub listening on :${port} (${status.ok ? 'ok' : 'down'})`);
+  console.log(
+    `[match] Colyseus stub listening on :${port} (${status.ok ? 'ok' : 'down'}; db + redis clients ready: ${!!db && !!redis})`,
+  );
 }

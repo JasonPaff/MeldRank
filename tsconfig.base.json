@@ -28,6 +28,7 @@
 
     "paths": {
       "@meldrank/shared": ["./packages/shared/src/index.ts"],
+      "@meldrank/shared/server": ["./packages/shared/src/server/index.ts"],
       "@meldrank/engine": ["./packages/engine/src/index.ts"]
     }
   }
