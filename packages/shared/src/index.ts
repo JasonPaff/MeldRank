@@ -23,6 +23,12 @@ export { webEnv, webEnvKeys, loadWebEnv, type WebEnv } from './env/web';
  */
 export * from './variant';
 
+/**
+ * Player intent payload types — the locked "API Surface" §4 wire intents
+ * (`bid`, `pass`, `declareTrump`, `playCard`) consumed type-only by the engine.
+ */
+export * from './intent';
+
 /** Health-check record schema, used by the app services' liveness endpoints. */
 export const HealthSchema = z.object({
   service: z.string(),
