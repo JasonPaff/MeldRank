@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { allEnvKeys } from '@meldrank/shared/server';
 
 function readExampleKeys(): string[] {
-  const path = fileURLToPath(new URL('../.env', import.meta.url));
+  const path = fileURLToPath(new URL('../.env.example', import.meta.url));
   const text = readFileSync(path, 'utf8');
   const keys: string[] = [];
   for (const rawLine of text.split('\n')) {
