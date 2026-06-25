@@ -1,0 +1,23 @@
+{
+  "name": "@meldrank/match",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@meldrank/shared": "workspace:*",
+    "colyseus": "^0.17.10"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "eslint": "^10.5.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  }
+}

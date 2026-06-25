@@ -1,13 +1,52 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+# Project context — shown to AI when creating artifacts.
+context: |
+  MeldRank — the competitive home for online pinochle. A legitimate, trustworthy
+  ranked ladder for canonical variants (single-deck partners, single-deck cutthroat),
+  wrapped in a casual social card hall that supports all variants/decks/rulesets.
+  North star: be to pinochle what chess.com is to chess. v1 is casual-first, with a
+  provisional ranked ladder layered on; ranked v1 is Single-Deck Partners only.
+
+  Design source of truth: Linear project "MeldRank" (Sleepy Bookworm Software, team
+  key SLE). ~20 locked design docs live there as Linear documents, not in the repo —
+  notably "Technical Architecture — v1" (the locked stack), "Game Engine — Abstract
+  Model", the canonical ranked rulesets, "Data Model", "Match Runtime", "Rating &
+  Ranking", "Lobby & Matchmaking", "Auth & Identity", and "API Surface & Contracts".
+  Reference these by name in artifacts; don't restate them at length.
+
+  Locked stack (Technical Architecture §7 — "TypeScript everywhere"):
+  - Monorepo: pnpm + Turborepo. Packages namespaced @meldrank/*.
+    Layout: packages/engine, packages/shared, apps/web, apps/api, apps/match, apps/bots.
+  - packages/engine: pure-TS Game Engine, ZERO runtime deps, exhaustively unit-tested.
+    Runs in three places — client (validation/offline bot practice), Match Service
+    (authority), and bots (decisions). One shared implementation.
+  - packages/shared: shared types + Zod schemas (home of the Variant Definition schema).
+  - apps/web: Next.js client (lobby, profiles, ladder, the classic table).
+  - apps/api: stateless tRPC backend (accounts, matchmaking, ratings, persistence).
+  - apps/match: Colyseus Realtime Match Service — stateful long-lived rooms, one
+    authoritative engine instance per live table; clocks, reconnection, hidden-info
+    filtering. Server-authoritative; clients never see hidden info.
+  - apps/bots: bot workers that join rooms behind the same intent interface as humans.
+  - Data: Postgres + Drizzle (Neon) for durable; Redis (Upstash) for presence,
+    matchmaking queues, and API↔Match pub/sub.
+  - Auth: Clerk. Validation: Zod everywhere.
+  - Hosting: Web + API → Vercel; Match Service + bots → Fly.io; Neon; Upstash.
+
+  Tooling conventions (resolved 2026-06-25): TypeScript strict via a single shared
+  base tsconfig; ESLint (flat config) + Prettier; Vitest; internal packages consumed
+  as TS source via workspace:* + tsconfig path aliases (not project-reference builds);
+  Node 22 LTS pinned (.nvmrc + engines); pnpm pinned via packageManager.
+
+  Dependency-version policy: keep ALL dependencies on their latest STABLE release.
+  Install/add packages at the newest stable version available at the time the work
+  lands; do not pin to older majors or let versions drift. Exclude pre-release /
+  RC / next / canary tags. Verify "latest" against the npm registry rather than from
+  memory. Toolchain pins (Node 22 LTS, pinned pnpm) are the deliberate exceptions.
+
+  Implementation sequencing: OpenSpec-driven, one change at a time. Build order is
+  scaffold → infra provisioning → Game Engine, then outward (match runtime, client,
+  rating, lobby, then the deferred read-view systems).
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.

@@ -19,9 +19,11 @@ MeldRank's design phase is complete (20 locked design docs in Linear) and the st
 ## Capabilities
 
 ### New Capabilities
+
 - `monorepo-workspace`: The repository structure and developer tooling contract — workspace layout, package boundaries, the base TypeScript/lint/test configuration, and the root commands (`build`, `typecheck`, `lint`, `test`, `dev`) that operate across the workspace.
 
 ### Modified Capabilities
+
 <!-- None — greenfield repository, no existing specs. -->
 
 ## Impact
