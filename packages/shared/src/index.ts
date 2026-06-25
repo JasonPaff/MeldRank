@@ -16,10 +16,14 @@ export { EnvValidationError, parseEnv } from './env/load';
 export { webEnv, webEnvKeys, loadWebEnv, type WebEnv } from './env/web';
 
 /**
- * Placeholder schema that proves Zod is wired up and that `@meldrank/shared`
- * is the home for shared schemas. The real Variant Definition schema and the
- * rest of the shared types land in later changes.
+ * Variant Definition: the schema that parameterizes a pinochle game, its
+ * inferred type, the phase-gating predicates, and the two frozen canonical
+ * ranked rulesets. This is the keystone that drives one engine across many
+ * variants.
  */
+export * from './variant';
+
+/** Health-check record schema, used by the app services' liveness endpoints. */
 export const HealthSchema = z.object({
   service: z.string(),
   ok: z.boolean(),

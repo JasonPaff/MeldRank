@@ -2,16 +2,19 @@
  * MeldRank Game Engine — pure TypeScript with **zero runtime dependencies**.
  *
  * The engine stays dependency-free so it can run unchanged in the web client,
- * the Realtime Match Service, and bot workers. The bidding, meld-scoring, and
- * trick-play rules arrive in later changes; this stub exists only to prove the
- * package builds, exports cleanly, and is ready for exhaustive unit testing.
+ * the Realtime Match Service, and bot workers. It consumes only the inferred
+ * `VariantDefinition` *type* from `@meldrank/shared` (erased at build), never
+ * Zod or any runtime import.
+ *
+ * This change lays the foundation: the core domain model and the hand-lifecycle
+ * state-machine structure. The phase logic (Dealer, AuctionManager,
+ * MeldDetector, TrickResolver, scorers) arrives in later changes.
  */
 
 export const ENGINE_VERSION = '0.0.0';
 
-export type Suit = 'spades' | 'hearts' | 'clubs' | 'diamonds';
+/** Core domain entities: Card, Deck, Seat, Hand, Bid/Contract, Meld, Trick, ScorePad. */
+export * from './domain';
 
-/** Pure, deterministic placeholder: is `card`'s suit the trump suit? */
-export function isTrump(card: Suit, trump: Suit): boolean {
-  return card === trump;
-}
+/** Hand-lifecycle phases, the legal-transition table, and the active-path resolver. */
+export * from './lifecycle';

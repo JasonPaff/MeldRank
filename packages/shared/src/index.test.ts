@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { healthy, HealthSchema, PACKAGE_NAME } from './index';
+import {
+  PACKAGE_NAME,
+  healthy,
+  HealthSchema,
+  VariantDefinitionSchema,
+  SINGLE_DECK_PARTNERS,
+} from './index';
 
 describe('@meldrank/shared', () => {
   it('exposes its package name', () => {
@@ -10,5 +16,10 @@ describe('@meldrank/shared', () => {
     const health = healthy('test');
     expect(health).toEqual({ service: 'test', ok: true });
     expect(HealthSchema.safeParse(health).success).toBe(true);
+  });
+
+  it('re-exports the Variant Definition surface from the isomorphic root', () => {
+    expect(typeof VariantDefinitionSchema.parse).toBe('function');
+    expect(SINGLE_DECK_PARTNERS.id).toBe('single-deck-partners');
   });
 });

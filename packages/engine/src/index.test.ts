@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { ENGINE_VERSION, isTrump } from './index';
+import { ENGINE_VERSION, makeCard, LIFECYCLE_PHASES } from './index';
 
 describe('@meldrank/engine', () => {
   it('is importable and dependency-free', () => {
     expect(ENGINE_VERSION).toBe('0.0.0');
   });
 
-  it('identifies the trump suit', () => {
-    expect(isTrump('hearts', 'hearts')).toBe(true);
-    expect(isTrump('spades', 'hearts')).toBe(false);
+  it('re-exports the domain model and lifecycle from its root', () => {
+    expect(makeCard('A', 'spades', 0)).toEqual({ rank: 'A', suit: 'spades', copyIndex: 0 });
+    expect(LIFECYCLE_PHASES).toContain('TrickPlay');
   });
 });

@@ -1,4 +1,4 @@
-import { isTrump } from '@meldrank/engine';
+import { ENGINE_VERSION, LIFECYCLE_PHASES } from '@meldrank/engine';
 import { healthy } from '@meldrank/shared';
 import { createDb, createRedis, loadBotsEnv } from '@meldrank/shared/server';
 
@@ -16,7 +16,9 @@ function main(): void {
 
   const status = healthy('bots');
   console.log(`[bots] worker started: ${status.service} is ${status.ok ? 'ok' : 'down'}`);
-  console.log(`[bots] engine reachable: isTrump(hearts, hearts) = ${isTrump('hearts', 'hearts')}`);
+  console.log(
+    `[bots] engine reachable: v${ENGINE_VERSION}, ${LIFECYCLE_PHASES.length} lifecycle phases`,
+  );
   console.log(`[bots] db + redis clients ready: ${!!db && !!redis}`);
 }
 

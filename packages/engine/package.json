@@ -18,6 +18,8 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@meldrank/shared": "workspace:*",
+    "@types/node": "^22.20.0",
     "eslint": "^10.5.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
