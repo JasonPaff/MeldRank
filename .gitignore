@@ -49,3 +49,11 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 *.pem
+
+# ATK managed assets
+.claude/agents/
+.claude/hooks/
+.claude/rules/
+.claude/skills/
+.atk-lock.json.lock
+.atkrc.json
