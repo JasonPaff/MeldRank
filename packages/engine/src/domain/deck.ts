@@ -1,5 +1,5 @@
-import type { VariantDefinition } from '@meldrank/shared';
-import { makeCard, type Card, type Rank, type Suit } from './card';
+import type { DeckSpec, VariantDefinition } from '@meldrank/shared';
+import { makeCard, type Card } from './card';
 
 /**
  * Deck construction, per "Game Engine — Abstract Model" §4. A `Deck` is an
@@ -8,15 +8,12 @@ import { makeCard, type Card, type Rank, type Suit } from './card';
  */
 
 /**
- * The multiset a deck is built from: which ranks and suits, and how many copies
- * of each rank+suit. Mirrors `@meldrank/shared`'s deck-spec axis as plain data
- * the engine can read without a runtime dependency.
+ * The multiset a deck is built from (which ranks and suits, and how many copies
+ * of each rank+suit) is the variant schema's `DeckSpec`, re-exported type-only
+ * so the engine reads it without a runtime dependency and without re-declaring
+ * the shape.
  */
-export interface DeckSpec {
-  readonly ranks: readonly Rank[];
-  readonly suits: readonly Suit[];
-  readonly copiesPerCard: number;
-}
+export type { DeckSpec };
 
 /** An ordered deck of cards. */
 export type Deck = readonly Card[];

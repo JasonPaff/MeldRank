@@ -58,9 +58,8 @@ describe('VariantDefinitionSchema', () => {
     bad.ratingBasis = 'coin-flip';
     const result = VariantDefinitionSchema.safeParse(bad);
     expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error.issues.some((i) => i.path.join('.') === 'ratingBasis')).toBe(true);
-    }
+    const issues = result.success ? [] : result.error.issues;
+    expect(issues.some((i) => i.path.join('.') === 'ratingBasis')).toBe(true);
   });
 
   it('rejects an out-of-range number with a field-level issue', () => {
@@ -68,9 +67,8 @@ describe('VariantDefinitionSchema', () => {
     bad.seating.playerCount = 9;
     const result = VariantDefinitionSchema.safeParse(bad);
     expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error.issues.some((i) => i.path.join('.') === 'seating.playerCount')).toBe(true);
-    }
+    const issues = result.success ? [] : result.error.issues;
+    expect(issues.some((i) => i.path.join('.') === 'seating.playerCount')).toBe(true);
   });
 
   it('rejects a non-integer numeric axis', () => {
@@ -78,9 +76,8 @@ describe('VariantDefinitionSchema', () => {
     bad.bidding.increment = 10.5;
     const result = VariantDefinitionSchema.safeParse(bad);
     expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error.issues.some((i) => i.path.join('.') === 'bidding.increment')).toBe(true);
-    }
+    const issues = result.success ? [] : result.error.issues;
+    expect(issues.some((i) => i.path.join('.') === 'bidding.increment')).toBe(true);
   });
 
   it('accepts zeroed widow/bury/passing and marks those phases disabled', () => {

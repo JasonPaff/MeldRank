@@ -1,3 +1,5 @@
+import type { Rank, Suit } from '@meldrank/shared';
+
 /**
  * The `Card` entity and its rank/suit vocabulary, per "Game Engine — Abstract
  * Model" §4. Pure, dependency-free data: pinochle has two physical copies of
@@ -6,11 +8,14 @@
  * load-bearing for later meld and must-beat logic, so it is fixed here.
  */
 
-/** The six pinochle ranks, high to low. (Double-deck variants drop the `9`.) */
-export type Rank = 'A' | '10' | 'K' | 'Q' | 'J' | '9';
-
-/** The four suits. */
-export type Suit = 'spades' | 'hearts' | 'clubs' | 'diamonds';
+/**
+ * The rank and suit vocabulary is owned by the variant schema in
+ * `@meldrank/shared` (the single source of truth that the deck spec is built
+ * from). The engine re-exports it type-only — so its domain modules import the
+ * vocabulary from one place without the union drifting from the schema, and the
+ * zero-runtime-dependency invariant still holds.
+ */
+export type { Rank, Suit };
 
 /**
  * A single physical card. `copyIndex` (0-based) distinguishes the otherwise
