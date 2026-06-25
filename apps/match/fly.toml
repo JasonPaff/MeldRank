@@ -2,7 +2,7 @@
 # App name and region are placeholders the operator sets at provisioning time
 # (see infra/README.md). Secrets are supplied via `fly secrets`, never here.
 app = "meldrank-match"
-primary_region = "iad"
+primary_region = "ord"
 
 [build]
   dockerfile = "Dockerfile"
