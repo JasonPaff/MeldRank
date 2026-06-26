@@ -8,9 +8,10 @@
  *
  * On the foundation's domain model and hand-lifecycle structure the phase
  * drivers — the pure `reduce(state, event)` state container, the Dealer, the
- * AuctionManager, the deterministic WidowReveal transition, and the DeclareTrump
- * driver — wire the `Dealing → Auction → [WidowReveal] → DeclareTrump → (ready
- * for Melding)` slice. The remaining phase logic (MeldDetector, TrickResolver,
+ * AuctionManager, the deterministic WidowReveal transition, the DeclareTrump
+ * driver, and the MeldDetector — wire the `Dealing → Auction → [WidowReveal] →
+ * DeclareTrump → Melding → [Bury] → TrickPlay` slice (Melding is computed and
+ * recorded as a deterministic transition). The remaining phase logic (TrickResolver,
  * scorers) arrives in later changes.
  */
 
@@ -36,3 +37,6 @@ export * from './widow';
 
 /** The DeclareTrump phase driver: `declareTrump` legality and the recorded trump. */
 export * from './declare';
+
+/** The MeldDetector: the pure maximum-legal-meld computation for the Melding phase. */
+export * from './meld';

@@ -41,7 +41,7 @@ describe('Dealing → Auction integration', () => {
     expect(final.public.outcome).toBeNull();
   });
 
-  it('folds a Partners hand through declareTrump to a recorded trump at Melding', () => {
+  it('folds a Partners hand through Melding to recorded melds at every seat, resting at TrickPlay', () => {
     const log: Event[] = [
       { type: 'deal', seed: 2024 },
       { type: 'bid', seat: 1, value: 250 },
@@ -55,10 +55,17 @@ describe('Dealing → Auction integration', () => {
 
     expect(final.public.contract).toEqual({ seatIndex: 2, value: 260 });
     expect(final.public.trump).toBe('hearts');
-    expect(final.public.phase).toBe('Melding');
+    // Partners skips Bury, so Melding passes through to TrickPlay.
+    expect(final.public.phase).toBe('TrickPlay');
+    // All four seats meld; each entry carries a seat, its melds, and a numeric total.
+    expect(final.public.melds.map((seatMeld) => seatMeld.seatIndex)).toEqual([0, 1, 2, 3]);
+    for (const seatMeld of final.public.melds) {
+      expect(typeof seatMeld.total).toBe('number');
+      expect(seatMeld.total).toBe(seatMeld.melds.reduce((sum, meld) => sum + meld.value, 0));
+    }
   });
 
-  it('folds a Cutthroat hand through the widow reveal and declareTrump to Melding', () => {
+  it('folds a Cutthroat hand through the widow reveal and Melding to a bidder-only meld at Bury', () => {
     const dealt = fold(SINGLE_DECK_CUTTHROAT, 0, [{ type: 'deal', seed: 99 }]);
     const log: Event[] = [
       { type: 'deal', seed: 99 },
@@ -75,7 +82,10 @@ describe('Dealing → Auction integration', () => {
     expect(final.private.hands[1]!.cards).toHaveLength(18);
     expect(final.private.widow).toEqual([]);
     expect(final.public.trump).toBe('clubs');
-    expect(final.public.phase).toBe('Melding');
+    // Cutthroat has a Bury, so Melding rests at Bury (not TrickPlay).
+    expect(final.public.phase).toBe('Bury');
+    // Only the bidder melds (whoMelds: bidder-only).
+    expect(final.public.melds.map((seatMeld) => seatMeld.seatIndex)).toEqual([1]);
   });
 
   it('surfaces a redeal outcome on a Cutthroat all-pass without advancing the phase', () => {

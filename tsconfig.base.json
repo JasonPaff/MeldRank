@@ -29,6 +29,7 @@
     "paths": {
       "@meldrank/shared": ["./packages/shared/src/index.ts"],
       "@meldrank/shared/server": ["./packages/shared/src/server/index.ts"],
+      "@meldrank/shared/meld": ["./packages/shared/src/variant/meld-table.ts"],
       "@meldrank/engine": ["./packages/engine/src/index.ts"]
     }
   }

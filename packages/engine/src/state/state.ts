@@ -1,6 +1,6 @@
 import type { Suit, VariantDefinition } from '@meldrank/shared';
 import type { LifecyclePhase } from '../lifecycle/phases';
-import { makeContract, type Bid, type Contract, type Hand } from '../domain/entities';
+import { makeContract, type Bid, type Contract, type Hand, type Meld } from '../domain/entities';
 import type { Card } from '../domain/card';
 import type { AuctionState } from '../auction/auction';
 
@@ -14,6 +14,18 @@ import type { AuctionState } from '../auction/auction';
  * Match Service's per-seat filtering is a mechanical projection, not a bespoke
  * walk. The engine structures the state for filtering; it does not filter.
  */
+
+/**
+ * A melding seat's recorded meld (design D4): the seat, its laid-down `Meld[]`,
+ * and their `total`. Meld is laid face-up for the whole table ("Single-Deck
+ * Partners" §6), so it is recorded in public state. Non-melding seats (Cutthroat
+ * defenders) get no entry.
+ */
+export interface SeatMeld {
+  readonly seatIndex: number;
+  readonly melds: readonly Meld[];
+  readonly total: number;
+}
 
 /** The table-visible state every seat may see. */
 export interface PublicState {
@@ -34,6 +46,12 @@ export interface PublicState {
    * canonical widow is `exposed`, so the reveal is recorded publicly (design D2).
    */
   readonly revealedWidow: readonly Card[];
+  /**
+   * Each melding seat's computed meld, recorded once the lifecycle passes through
+   * `Melding` (design D4). Empty until then; carries only the melding seats
+   * (all seats for Partners, the bidder only for Cutthroat).
+   */
+  readonly melds: readonly SeatMeld[];
   /** A `redeal` signal for the room to re-deal (Cutthroat all-pass), else `null`. */
   readonly outcome: 'redeal' | null;
 }
@@ -73,6 +91,7 @@ export function createInitialState(variant: VariantDefinition, dealerSeat = 0): 
       contract: null,
       trump: null,
       revealedWidow: [],
+      melds: [],
       outcome: null,
     },
     private: { hands: [], widow: [] },

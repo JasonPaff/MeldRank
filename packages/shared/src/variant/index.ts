@@ -44,3 +44,19 @@ export {
 } from './schema';
 
 export { SINGLE_DECK_PARTNERS, SINGLE_DECK_CUTTHROAT } from './canonical';
+
+/**
+ * The Standard meld table: the canonical Class A/B/C meld definitions and point
+ * values (plus double bonuses) resolved from `melding.meldTableId`. Plain,
+ * Zod-free data the engine reads via `@meldrank/shared/meld` without a runtime dep.
+ */
+export {
+  STANDARD_SINGLE_DECK_MELD_TABLE,
+  getMeldTable,
+  type MeldTableId,
+  type MeldTableClass,
+  type MeldCardPattern,
+  type MeldPattern,
+  type MeldDefinition,
+  type MeldTable,
+} from './meld-table';

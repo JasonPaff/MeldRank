@@ -1,11 +1,13 @@
-import type { DeclareTrumpIntent, VariantDefinition } from '@meldrank/shared';
+import type { DeclareTrumpIntent, Suit, VariantDefinition } from '@meldrank/shared';
+import { getMeldTable } from '@meldrank/shared/meld';
 import { isLegalTransition, resolveActivePath, type LifecyclePhase } from '../lifecycle/phases';
 import { createSeededRng } from '../dealer/rng';
 import { deal } from '../dealer/deal';
 import { applyBid, applyPass, openAuction, type AuctionStep } from '../auction/auction';
 import { revealWidow } from '../widow/widow';
 import { declareTrump } from '../declare/declare';
-import type { State } from './state';
+import { MeldDetector } from '../meld/meld';
+import type { SeatMeld, State } from './state';
 import type { DealEvent, Event } from './events';
 
 /**
@@ -19,12 +21,15 @@ import type { DealEvent, Event } from './events';
  * cannot diverge.
  *
  * This change drives the `Dealing → Auction → [WidowReveal] → DeclareTrump →
- * (ready for Melding)` slice: a `deal` populates the hands and widow and opens
- * the auction; `bid`/`pass`/`timeout` drive the auction to a recorded `Bid` (and,
- * for widow variants, a deterministic widow reveal) resting at `DeclareTrump`, or
- * a `redeal` outcome; a `declareTrump` from the contract winner records the trump
- * and advances to `Melding`. `playCard` (and any event in `Melding` and later) is
- * accepted by the type but rejected by the guard until its phase is implemented.
+ * Melding → [Bury] → TrickPlay` slice: a `deal` populates the hands and widow and
+ * opens the auction; `bid`/`pass`/`timeout` drive the auction to a recorded `Bid`
+ * (and, for widow variants, a deterministic widow reveal) resting at
+ * `DeclareTrump`, or a `redeal` outcome; a `declareTrump` from the contract winner
+ * records the trump, computes each melding seat's meld through the deterministic
+ * `Melding` transition, and rests at the variant's next active phase (`Bury` for
+ * Cutthroat, `TrickPlay` for Partners). `playCard` (and any `Bury` / `TrickPlay`
+ * event) is accepted by the type but rejected by the guard until its phase is
+ * implemented.
  */
 export function reduce(state: State, event: Event): State {
   switch (state.public.phase) {
@@ -163,10 +168,51 @@ function applyDeclareTrump(state: State, event: DeclareTrumpIntent): State {
   if (next === null) {
     return state;
   }
-  return {
+  const declared: State = {
     ...state,
     public: { ...state.public, phase: next, trump: step.trump, seatToAct: null },
   };
+  // `Melding` has no driving event (design D3): when it is the next active phase,
+  // compute each melding seat's meld and pass through deterministically to the
+  // resting phase (`Bury` for Cutthroat, `TrickPlay` for Partners).
+  return next === 'Melding' ? passThroughMelding(declared, step.trump) : declared;
+}
+
+/**
+ * Pass through the `Melding` phase deterministically (design D3): compute each
+ * melding seat's meld via the {@link MeldDetector} against the declared `trump`
+ * and the variant's meld table, record them in `public.melds`, and advance to the
+ * next active phase. `state` is the just-declared state already resting at
+ * `Melding`. Melding seats follow `melding.whoMelds` — every seat for `all-seats`
+ * (Partners), the contract seat alone for `bidder-only` (Cutthroat).
+ */
+function passThroughMelding(state: State, trump: Suit): State {
+  const next = nextActivePhase(state.variant, 'Melding');
+  if (next === null) {
+    return state;
+  }
+  const table = getMeldTable(state.variant.melding.meldTableId);
+  if (table === null) {
+    return state;
+  }
+  const melds: SeatMeld[] = meldingSeats(state).map((seatIndex) => {
+    const hand = state.private.hands[seatIndex]!;
+    const { melds: seatMelds, total } = MeldDetector(hand, trump, table);
+    return { seatIndex, melds: seatMelds, total };
+  });
+  return { ...state, public: { ...state.public, phase: next, melds } };
+}
+
+/**
+ * The seats that meld this hand, per `melding.whoMelds`: every dealt seat for
+ * `all-seats`, the recorded contract seat alone for `bidder-only`.
+ */
+function meldingSeats(state: State): number[] {
+  if (state.variant.melding.whoMelds === 'bidder-only') {
+    const bidder = state.public.contract?.seatIndex;
+    return bidder === undefined ? [] : [bidder];
+  }
+  return state.private.hands.map((hand) => hand.seatIndex);
 }
 
 /**

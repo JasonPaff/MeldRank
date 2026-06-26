@@ -48,7 +48,7 @@ describe('declareTrump (pure)', () => {
 });
 
 describe('reduce — DeclareTrump phase', () => {
-  it('records trump from the contract winner and advances to Melding', () => {
+  it('records trump, melds at every seat, and passes through Melding to TrickPlay', () => {
     const final = reduce(fold(SINGLE_DECK_PARTNERS, 0, partnersWon), {
       type: 'declareTrump',
       seat: 2,
@@ -56,8 +56,11 @@ describe('reduce — DeclareTrump phase', () => {
     });
 
     expect(final.public.trump).toBe('hearts');
-    expect(final.public.phase).toBe('Melding');
+    // Partners has no Bury, so Melding passes through to TrickPlay (design D3).
+    expect(final.public.phase).toBe('TrickPlay');
     expect(getContract(final)).toEqual({ seatIndex: 2, value: 260, trump: 'hearts' });
+    // All four seats meld (whoMelds: all-seats).
+    expect(final.public.melds.map((seatMeld) => seatMeld.seatIndex)).toEqual([0, 1, 2, 3]);
   });
 
   it('rejects a declaration from a non-winning seat with state unchanged', () => {
@@ -86,6 +89,21 @@ describe('reduce — DeclareTrump phase', () => {
       card: { rank: 'A', suit: 'spades', copyIndex: 0 },
     });
     expect(after).toBe(won);
+  });
+
+  it('rejects a playCard after Melding too (the new TrickPlay frontier)', () => {
+    const atTrickPlay = reduce(fold(SINGLE_DECK_PARTNERS, 0, partnersWon), {
+      type: 'declareTrump',
+      seat: 2,
+      trump: 'hearts',
+    });
+    expect(atTrickPlay.public.phase).toBe('TrickPlay');
+    const after = reduce(atTrickPlay, {
+      type: 'playCard',
+      seat: 2,
+      card: { rank: 'A', suit: 'spades', copyIndex: 0 },
+    });
+    expect(after).toBe(atTrickPlay);
   });
 
   it('leaves trump null and the contract incomplete before declaration', () => {
