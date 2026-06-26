@@ -15,6 +15,10 @@
     "./meld": {
       "types": "./src/variant/meld-table.ts",
       "default": "./src/variant/meld-table.ts"
+    },
+    "./fairness": {
+      "types": "./src/fairness/index.ts",
+      "default": "./src/fairness/index.ts"
     }
   },
   "main": "./src/index.ts",
@@ -26,7 +30,9 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@meldrank/engine": "workspace:*",
     "@neondatabase/serverless": "^1.1.0",
+    "@noble/hashes": "^2.0.0",
     "@upstash/redis": "^1.38.0",
     "drizzle-orm": "^0.45.2",
     "zod": "^4.4.3"
