@@ -56,3 +56,6 @@ export * from './match';
 
 /** The TimeoutMove: the pure Ruling 5 forced-move policy for an expired move clock. */
 export * from './timeout';
+
+/** The per-seat filtered-view projection: `viewFor` and the `FilteredView` type. */
+export * from './view';
