@@ -12,6 +12,7 @@ export {
   type PublicState,
   type PrivateState,
   type SeatMeld,
+  type SeatCapture,
 } from './state';
 export {
   EVENT_KINDS,

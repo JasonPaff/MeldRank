@@ -9,10 +9,11 @@
  * On the foundation's domain model and hand-lifecycle structure the phase
  * drivers — the pure `reduce(state, event)` state container, the Dealer, the
  * AuctionManager, the deterministic WidowReveal transition, the DeclareTrump
- * driver, and the MeldDetector — wire the `Dealing → Auction → [WidowReveal] →
- * DeclareTrump → Melding → [Bury] → TrickPlay` slice (Melding is computed and
- * recorded as a deterministic transition). The remaining phase logic (TrickResolver,
- * scorers) arrives in later changes.
+ * driver, the MeldDetector, and the TrickPlay drivers (LegalPlayValidator +
+ * TrickResolver) — wire the `Dealing → Auction → [WidowReveal] → DeclareTrump →
+ * Melding → TrickPlay → HandScoring` slice (Melding is a deterministic
+ * transition; TrickPlay rests and folds `playCard` intents). The remaining phase
+ * logic (the HandScorer, the match-level scorepad) arrives in later changes.
  */
 
 export const ENGINE_VERSION = '0.0.0';
@@ -40,3 +41,6 @@ export * from './declare';
 
 /** The MeldDetector: the pure maximum-legal-meld computation for the Melding phase. */
 export * from './meld';
+
+/** The TrickPlay drivers: the LegalPlayValidator, the TrickResolver, and the strength comparator. */
+export * from './play';

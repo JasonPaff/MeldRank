@@ -4,7 +4,7 @@ import {
   SINGLE_DECK_CUTTHROAT,
   type VariantDefinition,
 } from '@meldrank/shared';
-import { reduce, createInitialState, type Event } from './index';
+import { reduce, createInitialState, LegalPlayValidator, type Event, type State } from './index';
 
 /** Fold an ordered event log over `reduce` from a fresh initial state. */
 function fold(variant: VariantDefinition, dealerSeat: number, log: readonly Event[]) {
@@ -99,6 +99,64 @@ describe('Dealing → Auction integration', () => {
     expect(final.public.outcome).toBe('redeal');
     expect(final.public.contract).toBeNull();
     expect(final.public.phase).toBe('Auction');
+  });
+
+  it('folds a full Partners hand through TrickPlay to HandScoring with a complete capture tally', () => {
+    // Drive the auction + declaration to the resting TrickPlay phase.
+    const setup: Event[] = [
+      { type: 'deal', seed: 2024 },
+      { type: 'bid', seat: 1, value: 250 },
+      { type: 'bid', seat: 2, value: 260 },
+      { type: 'pass', seat: 3 },
+      { type: 'pass', seat: 0 },
+      { type: 'pass', seat: 1 },
+      { type: 'declareTrump', seat: 2, trump: 'hearts' },
+    ];
+    const postMelding = fold(SINGLE_DECK_PARTNERS, 0, setup);
+    expect(postMelding.public.phase).toBe('TrickPlay');
+
+    // Generate a legal play log: at each turn, the seat-to-act plays its first
+    // legal card. This folds the whole hand to all-hands-empty.
+    const playLog: Event[] = [];
+    let state: State = postMelding;
+    while (state.public.phase === 'TrickPlay') {
+      const seat = state.public.seatToAct!;
+      const hand = state.private.hands[seat]!;
+      const legal = LegalPlayValidator(
+        hand,
+        state.public.currentTrick,
+        state.public.trump!,
+        SINGLE_DECK_PARTNERS.trick,
+      );
+      const card = legal[0]!;
+      const event: Event = {
+        type: 'playCard',
+        seat,
+        card: { rank: card.rank, suit: card.suit, copyIndex: card.copyIndex },
+      };
+      playLog.push(event);
+      state = reduce(state, event);
+    }
+
+    // 4 seats × 12 cards = 48 plays over 12 tricks, then the phase advances.
+    expect(playLog).toHaveLength(48);
+    expect(state.public.phase).toBe('HandScoring');
+    expect(state.public.seatToAct).toBeNull();
+    expect(state.public.completedTricks).toHaveLength(12);
+    expect(state.public.completedTricks.every((t) => t.winnerSeatIndex !== null)).toBe(true);
+    expect(state.private.hands.every((h) => h.cards.length === 0)).toBe(true);
+    // Every counter point (240) plus the last-trick bonus (10) is captured.
+    const totalCounters = state.public.captured.reduce((sum, c) => sum + c.counters, 0);
+    expect(totalCounters).toBe(250);
+    const totalTricks = state.public.captured.reduce((sum, c) => sum + c.tricksTaken, 0);
+    expect(totalTricks).toBe(12);
+
+    // Folding the same play log twice from the same post-melding state is
+    // deep-equal (replay determinism).
+    const replayA = playLog.reduce((s, e) => reduce(s, e), postMelding);
+    const replayB = playLog.reduce((s, e) => reduce(s, e), postMelding);
+    expect(replayA).toEqual(replayB);
+    expect(replayA).toEqual(state);
   });
 
   it('folds the same event log twice to deep-equal state (replay determinism)', () => {

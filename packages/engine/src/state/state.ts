@@ -1,6 +1,14 @@
 import type { Suit, VariantDefinition } from '@meldrank/shared';
 import type { LifecyclePhase } from '../lifecycle/phases';
-import { makeContract, type Bid, type Contract, type Hand, type Meld } from '../domain/entities';
+import {
+  makeContract,
+  makeTrick,
+  type Bid,
+  type Contract,
+  type Hand,
+  type Meld,
+  type Trick,
+} from '../domain/entities';
 import type { Card } from '../domain/card';
 import type { AuctionState } from '../auction/auction';
 
@@ -25,6 +33,19 @@ export interface SeatMeld {
   readonly seatIndex: number;
   readonly melds: readonly Meld[];
   readonly total: number;
+}
+
+/**
+ * A seat's running trick-capture tally during `TrickPlay` (design D6): the
+ * captured counter points (including the last-trick bonus once the hand ends) and
+ * the number of tricks taken. Tallied per **seat**, not per side — folding seats
+ * into sides and applying the meld-needs-a-trick gate is `HandScoring`'s job. Every
+ * dealt seat is present from the moment `TrickPlay` is entered.
+ */
+export interface SeatCapture {
+  readonly seatIndex: number;
+  readonly counters: number;
+  readonly tricksTaken: number;
 }
 
 /** The table-visible state every seat may see. */
@@ -52,6 +73,18 @@ export interface PublicState {
    * (all seats for Partners, the bidder only for Cutthroat).
    */
   readonly melds: readonly SeatMeld[];
+  /**
+   * The trick in progress during `TrickPlay` — its led suit and ordered plays —
+   * empty between tricks. Every play is face-up (§7), so it is public (design D6).
+   */
+  readonly currentTrick: Trick;
+  /**
+   * Each resolved trick of the hand, in order, carrying its `winnerSeatIndex`
+   * for replay/render and the `HandScoring` fold (design D6).
+   */
+  readonly completedTricks: readonly Trick[];
+  /** The per-seat captured-counter / tricks-taken tally (design D6). */
+  readonly captured: readonly SeatCapture[];
   /** A `redeal` signal for the room to re-deal (Cutthroat all-pass), else `null`. */
   readonly outcome: 'redeal' | null;
 }
@@ -92,6 +125,9 @@ export function createInitialState(variant: VariantDefinition, dealerSeat = 0): 
       trump: null,
       revealedWidow: [],
       melds: [],
+      currentTrick: makeTrick(),
+      completedTricks: [],
+      captured: [],
       outcome: null,
     },
     private: { hands: [], widow: [] },

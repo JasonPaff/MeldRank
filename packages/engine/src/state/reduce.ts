@@ -1,4 +1,4 @@
-import type { DeclareTrumpIntent, Suit, VariantDefinition } from '@meldrank/shared';
+import type { DeclareTrumpIntent, PlayCardIntent, Suit, VariantDefinition } from '@meldrank/shared';
 import { getMeldTable } from '@meldrank/shared/meld';
 import { isLegalTransition, resolveActivePath, type LifecyclePhase } from '../lifecycle/phases';
 import { createSeededRng } from '../dealer/rng';
@@ -7,7 +7,10 @@ import { applyBid, applyPass, openAuction, type AuctionStep } from '../auction/a
 import { revealWidow } from '../widow/widow';
 import { declareTrump } from '../declare/declare';
 import { MeldDetector } from '../meld/meld';
-import type { SeatMeld, State } from './state';
+import { LegalPlayValidator, TrickResolver, capturedCounters } from '../play';
+import { cardsIdentical, type Card } from '../domain/card';
+import { makeHand, makeTrick, type Hand, type Trick } from '../domain/entities';
+import type { SeatCapture, SeatMeld, State } from './state';
 import type { DealEvent, Event } from './events';
 
 /**
@@ -21,15 +24,18 @@ import type { DealEvent, Event } from './events';
  * cannot diverge.
  *
  * This change drives the `Dealing → Auction → [WidowReveal] → DeclareTrump →
- * Melding → [Bury] → TrickPlay` slice: a `deal` populates the hands and widow and
- * opens the auction; `bid`/`pass`/`timeout` drive the auction to a recorded `Bid`
- * (and, for widow variants, a deterministic widow reveal) resting at
- * `DeclareTrump`, or a `redeal` outcome; a `declareTrump` from the contract winner
- * records the trump, computes each melding seat's meld through the deterministic
- * `Melding` transition, and rests at the variant's next active phase (`Bury` for
- * Cutthroat, `TrickPlay` for Partners). `playCard` (and any `Bury` / `TrickPlay`
- * event) is accepted by the type but rejected by the guard until its phase is
- * implemented.
+ * Melding → TrickPlay → HandScoring` slice (Partners): a `deal` populates the
+ * hands and widow and opens the auction; `bid`/`pass`/`timeout` drive the auction
+ * to a recorded `Bid` (and, for widow variants, a deterministic widow reveal)
+ * resting at `DeclareTrump`, or a `redeal` outcome; a `declareTrump` from the
+ * contract winner records the trump and computes each melding seat's meld through
+ * the deterministic `Melding` transition. `TrickPlay` then **rests** and folds
+ * repeated `playCard` intents: each is validated against the `LegalPlayValidator`
+ * and the seat-to-act, appended to the current trick, and on a complete trick the
+ * winner (`TrickResolver`) is credited its captured counters and leads next —
+ * looping until hands empty, then advancing to `HandScoring`. `Bury` and any
+ * event in `HandScoring` / `MatchComplete` are accepted by the type but rejected
+ * by the guard until their phases are implemented.
  */
 export function reduce(state: State, event: Event): State {
   switch (state.public.phase) {
@@ -39,9 +45,11 @@ export function reduce(state: State, event: Event): State {
       return applyAuctionEvent(state, event);
     case 'DeclareTrump':
       return event.type === 'declareTrump' ? applyDeclareTrump(state, event) : state;
+    case 'TrickPlay':
+      return event.type === 'playCard' ? applyPlayCard(state, event) : state;
     default:
-      // No later phase is driven in this slice; every event (including
-      // `playCard`) is rejected without mutation.
+      // No later phase is driven in this slice; every event (`Bury`, anything in
+      // `HandScoring` / `MatchComplete`) is rejected without mutation.
       return state;
   }
 }
@@ -200,7 +208,136 @@ function passThroughMelding(state: State, trump: Suit): State {
     const { melds: seatMelds, total } = MeldDetector(hand, trump, table);
     return { seatIndex, melds: seatMelds, total };
   });
-  return { ...state, public: { ...state.public, phase: next, melds } };
+  const melded: State = { ...state, public: { ...state.public, phase: next, melds } };
+  // For Partners, `Melding` passes straight through to `TrickPlay`; seed the
+  // trick loop at the moment it becomes the resting phase (design D5). Cutthroat
+  // rests at `Bury` first — its `Bury → TrickPlay` seeding is a later change.
+  return next === 'TrickPlay' ? enterTrickPlay(melded) : melded;
+}
+
+/**
+ * Seed the `TrickPlay` loop on entry (design D5): the bid winner (the recorded
+ * contract seat) leads the first trick with a fresh empty `currentTrick`, and the
+ * per-seat capture tally starts at zero for every dealt seat.
+ */
+function enterTrickPlay(state: State): State {
+  const leader = state.public.contract?.seatIndex ?? 0;
+  const captured: SeatCapture[] = state.private.hands.map((hand) => ({
+    seatIndex: hand.seatIndex,
+    counters: 0,
+    tricksTaken: 0,
+  }));
+  return {
+    ...state,
+    public: { ...state.public, seatToAct: leader, currentTrick: makeTrick(), captured },
+  };
+}
+
+/**
+ * Drive a `playCard` during `TrickPlay` (design D5, D7). Rejected unchanged
+ * unless the event seat is the seat-to-act, the referenced `CardRef` resolves by
+ * identity to a card the seat holds, and that card is in the `LegalPlayValidator`
+ * set. On acceptance: remove the card from the seat's hand, append it to the
+ * current trick (setting the led suit on the first play), and pass the turn —
+ * resolving the trick when one play per seat has landed.
+ */
+function applyPlayCard(state: State, event: PlayCardIntent): State {
+  const { seatToAct, currentTrick, trump } = state.public;
+  if (seatToAct === null || event.seat !== seatToAct || trump === null) {
+    return state;
+  }
+  const hand = state.private.hands[event.seat];
+  if (hand === undefined) {
+    return state;
+  }
+  // Resolve the wire `CardRef` to a physical card by identity (copyIndex
+  // disambiguates the two copies); reject if the seat does not hold it.
+  const card = hand.cards.find((held) => cardsIdentical(held, event.card));
+  if (card === undefined) {
+    return state;
+  }
+  // Reject any card the legal set excludes.
+  const legal = LegalPlayValidator(hand, currentTrick, trump, state.variant.trick);
+  if (!legal.some((legalCard) => cardsIdentical(legalCard, card))) {
+    return state;
+  }
+
+  const playerCount = state.variant.seating.playerCount;
+  const hands = removeCard(state.private.hands, event.seat, card);
+  const ledSuit = currentTrick.plays.length === 0 ? card.suit : currentTrick.ledSuit;
+  const plays = [...currentTrick.plays, { seatIndex: event.seat, card }];
+  const trick = makeTrick(ledSuit, plays, null);
+
+  if (plays.length < playerCount) {
+    // The trick continues: the next seat in order acts.
+    const nextSeat = (event.seat + 1) % playerCount;
+    return {
+      ...state,
+      public: { ...state.public, currentTrick: trick, seatToAct: nextSeat },
+      private: { ...state.private, hands },
+    };
+  }
+  return resolveCompletedTrick(state, trick, hands, trump);
+}
+
+/**
+ * Resolve a completed trick (design D5): credit the winner its captured counters
+ * (plus the `lastTrickBonus` when every hand is now empty) and a trick taken,
+ * record the resolved trick, start a fresh `currentTrick`, and set the winner to
+ * lead next — or, when the hand is complete, advance to `HandScoring`.
+ */
+function resolveCompletedTrick(state: State, trick: Trick, hands: readonly Hand[], trump: Suit): State {
+  const winnerSeat = TrickResolver(trick, trump);
+  const resolved = makeTrick(trick.ledSuit, trick.plays, winnerSeat);
+  const handsEmpty = hands.every((hand) => hand.cards.length === 0);
+  const bonus = handsEmpty ? state.variant.scoring.lastTrickBonus : 0;
+  const counters = capturedCounters(trick, state.variant.scoring.counters) + bonus;
+  const captured = creditCapture(state.public.captured, winnerSeat, counters);
+  const completedTricks = [...state.public.completedTricks, resolved];
+
+  const publicBase = {
+    ...state.public,
+    currentTrick: makeTrick(),
+    completedTricks,
+    captured,
+  };
+  if (handsEmpty) {
+    // The final trick is resolved: advance along the legal edge to `HandScoring`.
+    const next = nextActivePhase(state.variant, 'TrickPlay');
+    return {
+      ...state,
+      public: { ...publicBase, phase: next ?? state.public.phase, seatToAct: null },
+      private: { ...state.private, hands },
+    };
+  }
+  // The trick winner leads the next trick.
+  return {
+    ...state,
+    public: { ...publicBase, seatToAct: winnerSeat },
+    private: { ...state.private, hands },
+  };
+}
+
+/** Return new hands with `card` removed from `seat`'s hand; other hands untouched. */
+function removeCard(hands: readonly Hand[], seat: number, card: Card): Hand[] {
+  return hands.map((hand) =>
+    hand.seatIndex === seat
+      ? makeHand(seat, hand.cards.filter((held) => !cardsIdentical(held, card)))
+      : hand,
+  );
+}
+
+/** Credit `seat`'s capture tally with `counters` points and one more trick taken. */
+function creditCapture(
+  captured: readonly SeatCapture[],
+  seat: number,
+  counters: number,
+): SeatCapture[] {
+  return captured.map((entry) =>
+    entry.seatIndex === seat
+      ? { ...entry, counters: entry.counters + counters, tricksTaken: entry.tricksTaken + 1 }
+      : entry,
+  );
 }
 
 /**
