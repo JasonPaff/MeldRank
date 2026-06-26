@@ -5,11 +5,9 @@ import { createInitialState } from './state';
 import { EVENT_KINDS } from './events';
 
 describe('Event union', () => {
-  it('enumerates exactly the six documented event kinds', () => {
-    expect([...EVENT_KINDS].sort()).toEqual(
-      ['bid', 'deal', 'declareTrump', 'pass', 'playCard', 'timeout'].sort(),
-    );
-    expect(EVENT_KINDS).toHaveLength(6);
+  it('enumerates exactly the seven documented event kinds', () => {
+    expect([...EVENT_KINDS].sort()).toEqual(['bid', 'bury', 'deal', 'declareTrump', 'pass', 'playCard', 'timeout'].sort());
+    expect(EVENT_KINDS).toHaveLength(7);
   });
 });
 

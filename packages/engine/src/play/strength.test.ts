@@ -49,9 +49,7 @@ describe('trickStrength — ordinal within a suit', () => {
   });
 
   it('gives the two copies of one card equal strength (the tie the resolver breaks by order)', () => {
-    expect(trickStrength(card('A', 'spades', 0), 'hearts', 'spades')).toBe(
-      trickStrength(card('A', 'spades', 1), 'hearts', 'spades'),
-    );
+    expect(trickStrength(card('A', 'spades', 0), 'hearts', 'spades')).toBe(trickStrength(card('A', 'spades', 1), 'hearts', 'spades'));
   });
 });
 

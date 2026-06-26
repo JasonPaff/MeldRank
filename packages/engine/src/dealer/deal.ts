@@ -48,12 +48,7 @@ function shuffle(deck: Deck, rng: Rng): Card[] {
  * the widow. Because the shuffle is uniform, the slice order does not bias the
  * deal, and the union of all hands plus the widow conserves the deck exactly.
  */
-export function deal(
-  deckSpec: DeckSpec,
-  handSize: number,
-  widowSize: number,
-  rng: Rng,
-): DealResult {
+export function deal(deckSpec: DeckSpec, handSize: number, widowSize: number, rng: Rng): DealResult {
   const deck = buildDeck(deckSpec);
   const dealtToHands = deck.length - widowSize;
 

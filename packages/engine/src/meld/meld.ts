@@ -31,11 +31,7 @@ const SUITS: readonly Suit[] = ['spades', 'hearts', 'clubs', 'diamonds'];
  */
 export function MeldDetector(hand: Hand, trump: Suit, meldTable: MeldTable): MeldResult {
   const { cards } = hand;
-  const melds: Meld[] = [
-    ...detectClassA(cards, trump, meldTable),
-    ...detectClassB(cards, meldTable),
-    ...detectClassC(cards, meldTable),
-  ];
+  const melds: Meld[] = [...detectClassA(cards, trump, meldTable), ...detectClassB(cards, meldTable), ...detectClassC(cards, meldTable)];
   const total = melds.reduce((sum, meld) => sum + meld.value, 0);
   return { melds, total };
 }
@@ -117,9 +113,7 @@ function detectClassA(cards: readonly Card[], trump: Suit, table: MeldTable): Me
       const queens = copiesOf(cards, 'Q', suit);
       const pairs = Math.min(kings.length, queens.length);
       for (let i = 0; i < pairs; i++) {
-        melds.push(
-          makeMeld(marriageDef.type, [kings[i]!, queens[i]!], marriageDef.value, marriageDef.class),
-        );
+        melds.push(makeMeld(marriageDef.type, [kings[i]!, queens[i]!], marriageDef.value, marriageDef.class));
       }
     }
   }

@@ -9,6 +9,7 @@ export type {
   PassIntent,
   DeclareTrumpIntent,
   PlayCardIntent,
+  BuryIntent,
   PlayerIntent,
   PlayerIntentKind,
 } from './types';

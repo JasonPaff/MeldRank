@@ -6,10 +6,7 @@ import { declareTrump } from './declare';
 
 /** Fold an ordered event log over `reduce` from a fresh initial state. */
 function fold(variant: VariantDefinition, dealerSeat: number, log: readonly Event[]): State {
-  return log.reduce(
-    (state, event) => reduce(state, event),
-    createInitialState(variant, dealerSeat),
-  );
+  return log.reduce((state, event) => reduce(state, event), createInitialState(variant, dealerSeat));
 }
 
 /** A Partners auction won by seat 2 (dealer 0), resting at DeclareTrump. */

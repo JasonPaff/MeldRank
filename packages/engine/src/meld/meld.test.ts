@@ -47,10 +47,7 @@ describe('MeldDetector — purity and the empty hand', () => {
   });
 
   it('scores a hand with no melds as zero', () => {
-    const result = detect(
-      [card('A', 'spades'), card('K', 'clubs'), card('J', 'spades'), card('10', 'diamonds')],
-      'hearts',
-    );
+    const result = detect([card('A', 'spades'), card('K', 'clubs'), card('J', 'spades'), card('10', 'diamonds')], 'hearts');
     expect(result.melds).toEqual([]);
     expect(result.total).toBe(0);
   });
@@ -125,15 +122,7 @@ describe('MeldDetector — Class B pinochle', () => {
   });
 
   it('scores Double Pinochle (300) instead of two singles when both copies are held', () => {
-    const result = detect(
-      [
-        card('Q', 'spades', 0),
-        card('Q', 'spades', 1),
-        card('J', 'diamonds', 0),
-        card('J', 'diamonds', 1),
-      ],
-      'hearts',
-    );
+    const result = detect([card('Q', 'spades', 0), card('Q', 'spades', 1), card('J', 'diamonds', 0), card('J', 'diamonds', 1)], 'hearts');
     expect(types(result.melds)).toEqual(['double-pinochle']);
     expect(result.total).toBe(300);
   });
@@ -182,8 +171,7 @@ describe('MeldDetector — cross-class reuse', () => {
     expect(types(result.melds)).toEqual(['marriage', 'pinochle', 'queens-around']);
     expect(result.total).toBe(20 + 40 + 60);
 
-    const contains = (meld: Meld | undefined): boolean =>
-      meld?.cards.some((c) => c.rank === 'Q' && c.suit === 'spades') ?? false;
+    const contains = (meld: Meld | undefined): boolean => meld?.cards.some((c) => c.rank === 'Q' && c.suit === 'spades') ?? false;
     expect(contains(result.melds.find((meld) => meld.type === 'marriage'))).toBe(true);
     expect(contains(result.melds.find((meld) => meld.type === 'pinochle'))).toBe(true);
     expect(contains(result.melds.find((meld) => meld.type === 'queens-around'))).toBe(true);

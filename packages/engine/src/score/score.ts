@@ -92,8 +92,7 @@ export function HandScorer(
   // Apply the meld-needs-a-trick gate per side (design D4): a trickless side
   // forfeits its meld. This precedes the made/set check so a bidding side that
   // took no trick cannot make on meld alone.
-  const gatedMeld = (entry: SideAccumulator): number =>
-    meldNeedsATrick && !entry.tookTrick ? 0 : entry.meld;
+  const gatedMeld = (entry: SideAccumulator): number => (meldNeedsATrick && !entry.tookTrick ? 0 : entry.meld);
 
   // Evaluate the bidding side against the contract (design D5).
   const bidder = sideOf(biddingSide);

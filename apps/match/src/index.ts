@@ -20,7 +20,5 @@ if (process.env.NODE_ENV !== 'test') {
   const port = env.PORT ?? 2567;
   const status = healthy('match');
   void gameServer.listen(port);
-  console.log(
-    `[match] Colyseus stub listening on :${port} (${status.ok ? 'ok' : 'down'}; db + redis clients ready: ${!!db && !!redis})`,
-  );
+  console.log(`[match] Colyseus stub listening on :${port} (${status.ok ? 'ok' : 'down'}; db + redis clients ready: ${!!db && !!redis})`);
 }

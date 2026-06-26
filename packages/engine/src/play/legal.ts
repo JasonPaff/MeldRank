@@ -15,12 +15,7 @@ import { trickStrength, winningPlay } from './strength';
  * function with no engine fork. The result is always non-empty for a non-empty
  * hand: a seat always has at least one legal play.
  */
-export function LegalPlayValidator(
-  hand: Hand,
-  trick: Trick,
-  trump: Suit,
-  trickRules: TrickRules,
-): Card[] {
+export function LegalPlayValidator(hand: Hand, trick: Trick, trump: Suit, trickRules: TrickRules): Card[] {
   const { cards } = hand;
 
   // The leader (empty trick) may play any card.
@@ -37,9 +32,7 @@ export function LegalPlayValidator(
   const ledCards = cards.filter((card) => card.suit === ledSuit);
   if (trickRules.mustFollowSuit && ledCards.length > 0) {
     if (trickRules.mustBeat) {
-      const beating = ledCards.filter(
-        (card) => trickStrength(card, trump, ledSuit) > winnerStrength,
-      );
+      const beating = ledCards.filter((card) => trickStrength(card, trump, ledSuit) > winnerStrength);
       return beating.length > 0 ? beating : ledCards;
     }
     return ledCards;
@@ -51,9 +44,7 @@ export function LegalPlayValidator(
   const trumpCards = cards.filter((card) => card.suit === trump);
   if (trickRules.mustTrumpWhenVoid && ledCards.length === 0 && trumpCards.length > 0) {
     if (trickRules.mustBeat && winner.card.suit === trump) {
-      const beating = trumpCards.filter(
-        (card) => trickStrength(card, trump, ledSuit) > winnerStrength,
-      );
+      const beating = trumpCards.filter((card) => trickStrength(card, trump, ledSuit) > winnerStrength);
       return beating.length > 0 ? beating : trumpCards;
     }
     return trumpCards;

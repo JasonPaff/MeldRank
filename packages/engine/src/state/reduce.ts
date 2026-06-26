@@ -1,4 +1,4 @@
-import type { DeclareTrumpIntent, PlayCardIntent, Suit, VariantDefinition } from '@meldrank/shared';
+import type { DeclareTrumpIntent, PlayCardIntent, Suit, VariantDefinition, BuryIntent } from '@meldrank/shared';
 import { getMeldTable } from '@meldrank/shared/meld';
 import { isLegalTransition, resolveActivePath, type LifecyclePhase } from '../lifecycle/phases';
 import { createSeededRng } from '../dealer/rng';
@@ -7,19 +7,14 @@ import { applyBid, applyPass, openAuction, type AuctionStep } from '../auction/a
 import { revealWidow } from '../widow/widow';
 import { declareTrump } from '../declare/declare';
 import { MeldDetector } from '../meld/meld';
+import { buryableCards } from '../bury/bury';
 import { LegalPlayValidator, TrickResolver, capturedCounters } from '../play';
 import { HandScorer } from '../score/score';
 import { MatchScorer } from '../match/match';
 import { TimeoutMove } from '../timeout/timeout';
-import { cardsIdentical, type Card } from '../domain/card';
+import { cardIdentityKey, cardsIdentical, type Card } from '../domain/card';
 import { appendHand, makeHand, makeTrick, type Hand, type Trick } from '../domain/entities';
-import {
-  createInitialState,
-  getContract,
-  type SeatCapture,
-  type SeatMeld,
-  type State,
-} from './state';
+import { createInitialState, getContract, type SeatCapture, type SeatMeld, type State } from './state';
 import type { DealEvent, Event } from './events';
 
 /**
@@ -40,23 +35,28 @@ import type { DealEvent, Event } from './events';
  * with no forced move, leaves the state unchanged. This is the single place that
  * resolves a timeout — no phase branch handles it inline.
  *
- * This change drives the `Dealing → Auction → [WidowReveal] → DeclareTrump →
- * Melding → TrickPlay → HandScoring` slice (Partners): a `deal` populates the
+ * This change drives the full `Dealing → Auction → [WidowReveal] → DeclareTrump →
+ * Melding → [Bury] → TrickPlay → HandScoring` lifecycle: a `deal` populates the
  * hands and widow and opens the auction; `bid`/`pass` drive the auction
  * to a recorded `Bid` (and, for widow variants, a deterministic widow reveal)
  * resting at `DeclareTrump`, or a `redeal` outcome; a `declareTrump` from the
  * contract winner records the trump and computes each melding seat's meld through
- * the deterministic `Melding` transition. `TrickPlay` then **rests** and folds
+ * the deterministic `Melding` transition. For a bury-enabled variant (Cutthroat),
+ * `Melding` then **rests** at `Bury` with the bidder on the clock, and a legal
+ * `bury` from the bidder (exactly `dealing.bury.size` distinct, held, eligible
+ * cards) discards those cards into `private.buried` and advances to a seeded
+ * `TrickPlay`; an illegal bury is a no-op. (Partners skips `Bury` and seeds
+ * `TrickPlay` straight out of `Melding`.) `TrickPlay` then **rests** and folds
  * repeated `playCard` intents: each is validated against the `LegalPlayValidator`
  * and the seat-to-act, appended to the current trick, and on a complete trick the
  * winner (`TrickResolver`) is credited its captured counters and leads next —
  * looping until hands empty, then advancing to `HandScoring`. At `HandScoring` the
- * hand is scored, the hands-made-as-bidder counter updated, and `MatchScorer`
- * evaluates the match-end condition: if the match is over, `reduce` advances to a
- * terminal `MatchComplete` carrying the `MatchResult`; otherwise it rests at
- * `HandScoring` and a `deal` starts the next hand (dealer rotated, per-hand state
- * reset, score pad and match-scope counters preserved). `MatchComplete` rejects
- * every event; `Bury` remains accepted by the type but rejected until implemented.
+ * hand is scored (buried counters credited to the bidding side), the
+ * hands-made-as-bidder counter updated, and `MatchScorer` evaluates the match-end
+ * condition: if the match is over, `reduce` advances to a terminal `MatchComplete`
+ * carrying the `MatchResult`; otherwise it rests at `HandScoring` and a `deal`
+ * starts the next hand (dealer rotated, per-hand state reset, score pad and
+ * match-scope counters preserved). `MatchComplete` rejects every event.
  */
 export function reduce(state: State, event: Event): State {
   // Single resolution point for the `timeout` system event (design D4): when it
@@ -76,6 +76,8 @@ export function reduce(state: State, event: Event): State {
       return applyAuctionEvent(state, event);
     case 'DeclareTrump':
       return event.type === 'declareTrump' ? applyDeclareTrump(state, event) : state;
+    case 'Bury':
+      return event.type === 'bury' ? applyBury(state, event) : state;
     case 'TrickPlay':
       return event.type === 'playCard' ? applyPlayCard(state, event) : state;
     case 'HandScoring':
@@ -83,8 +85,7 @@ export function reduce(state: State, event: Event): State {
       // starts the next hand (design D5/D6); every other event is rejected.
       return event.type === 'deal' ? startNextHand(state, event) : state;
     default:
-      // `MatchComplete` is terminal and `Bury` is not yet driven; every event is
-      // rejected without mutation.
+      // `MatchComplete` is terminal; every event is rejected without mutation.
       return state;
   }
 }
@@ -102,18 +103,13 @@ function applyDeal(state: State, event: DealEvent): State {
   }
 
   const rng = createSeededRng(event.seed);
-  const { hands, widow } = deal(
-    variant.deck,
-    variant.dealing.handSize,
-    variant.dealing.widow.size,
-    rng,
-  );
+  const { hands, widow } = deal(variant.deck, variant.dealing.handSize, variant.dealing.widow.size, rng);
   const auction = openAuction(variant.seating.playerCount, state.public.dealerSeat);
 
   return {
     variant,
     public: { ...state.public, phase: next, seatToAct: auction.toAct, auction },
-    private: { hands, widow },
+    private: { hands, widow, buried: [] },
   };
 }
 
@@ -190,7 +186,7 @@ function passThroughWidowReveal(state: State, winnerSeat: number): State {
   return {
     ...state,
     public: { ...state.public, phase: next, revealedWidow: revealed.revealedWidow },
-    private: { hands: revealed.hands, widow: revealed.widow },
+    private: { ...state.private, hands: revealed.hands, widow: revealed.widow },
   };
 }
 
@@ -201,12 +197,7 @@ function passThroughWidowReveal(state: State, winnerSeat: number): State {
  * (`Melding`); an illegal one leaves the state unchanged.
  */
 function applyDeclareTrump(state: State, event: DeclareTrumpIntent): State {
-  const step = declareTrump(
-    state.public.contract,
-    state.variant.deck.suits,
-    event.seat,
-    event.trump,
-  );
+  const step = declareTrump(state.public.contract, state.variant.deck.suits, event.seat, event.trump);
   if (step.status === 'rejected') {
     return state;
   }
@@ -246,11 +237,81 @@ function passThroughMelding(state: State, trump: Suit): State {
     const { melds: seatMelds, total } = MeldDetector(hand, trump, table);
     return { seatIndex, melds: seatMelds, total };
   });
-  const melded: State = { ...state, public: { ...state.public, phase: next, melds } };
-  // For Partners, `Melding` passes straight through to `TrickPlay`; seed the
-  // trick loop at the moment it becomes the resting phase (design D5). Cutthroat
-  // rests at `Bury` first — its `Bury → TrickPlay` seeding is a later change.
-  return next === 'TrickPlay' ? enterTrickPlay(melded) : melded;
+  // For Partners, `Melding` passes straight through to `TrickPlay`, so the trick
+  // loop is seeded the moment it becomes the resting phase (design D5). For a
+  // bury-enabled variant (Cutthroat) it rests at `Bury` with the **bidder** (the
+  // recorded contract seat) set to act, so the bidder is on the clock to choose
+  // the bury (design D4).
+  if (next === 'TrickPlay') {
+    return enterTrickPlay({ ...state, public: { ...state.public, phase: next, melds } });
+  }
+  const bidder = state.public.contract?.seatIndex ?? null;
+  return { ...state, public: { ...state.public, phase: next, melds, seatToAct: bidder } };
+}
+
+/**
+ * Drive a `bury` during `Bury` (design D2, D4). Rejected unchanged unless the
+ * event seat is the bidder (the recorded contract seat) and the seat-to-act, every
+ * referenced `CardRef` resolves by identity to a card the bidder holds, and the
+ * proposed bury is legal: exactly `dealing.bury.size` cards, all distinct, and all
+ * members of the `buryableCards` set (the variant's `no-melded` / `no-trump` /
+ * `no-dix` restrictions). On acceptance: remove the buried cards from the bidder's
+ * hand into `private.buried`, advance along the legal `Bury → TrickPlay` edge, and
+ * seed the trick loop with the bidder leading (`enterTrickPlay`).
+ */
+function applyBury(state: State, event: BuryIntent): State {
+  const { seatToAct, contract, trump, melds } = state.public;
+  const bidder = contract?.seatIndex;
+  if (bidder === undefined || event.seat !== bidder || seatToAct !== bidder || trump === null) {
+    return state;
+  }
+  const hand = state.private.hands[bidder];
+  if (hand === undefined) {
+    return state;
+  }
+
+  // Resolve each proposed `CardRef` to a held card by identity (`copyIndex`
+  // disambiguates the two copies); reject if any is not held.
+  const resolved: Card[] = [];
+  for (const ref of event.cards) {
+    const held = hand.cards.find((card) => cardsIdentical(card, ref));
+    if (held === undefined) {
+      return state;
+    }
+    resolved.push(held);
+  }
+
+  // The bury must name exactly `bury.size` distinct cards.
+  const size = state.variant.dealing.bury.size;
+  if (resolved.length !== size) {
+    return state;
+  }
+  const distinct = new Set(resolved.map((card) => cardIdentityKey(card)));
+  if (distinct.size !== resolved.length) {
+    return state;
+  }
+
+  // Every named card must be eligible (in the bury-validator's set).
+  const bidderMelds = melds.find((seatMeld) => seatMeld.seatIndex === bidder)?.melds ?? [];
+  const eligible = buryableCards(hand, bidderMelds, trump, state.variant.dealing.bury.restrictions);
+  if (!resolved.every((card) => eligible.some((ok) => cardsIdentical(ok, card)))) {
+    return state;
+  }
+
+  // Accept: remove the buried cards from the bidder's hand, record the bury pile,
+  // advance to `TrickPlay`, and seed the trick loop with the bidder leading.
+  const next = nextActivePhase(state.variant, 'Bury');
+  if (next === null) {
+    return state;
+  }
+  const remaining = hand.cards.filter((card) => !resolved.some((buried) => cardsIdentical(buried, card)));
+  const hands = state.private.hands.map((seatHand) => (seatHand.seatIndex === bidder ? makeHand(bidder, remaining) : seatHand));
+  const buried: State = {
+    ...state,
+    public: { ...state.public, phase: next },
+    private: { ...state.private, hands, buried: resolved },
+  };
+  return next === 'TrickPlay' ? enterTrickPlay(buried) : buried;
 }
 
 /**
@@ -324,12 +385,7 @@ function applyPlayCard(state: State, event: PlayCardIntent): State {
  * record the resolved trick, start a fresh `currentTrick`, and set the winner to
  * lead next — or, when the hand is complete, advance to `HandScoring`.
  */
-function resolveCompletedTrick(
-  state: State,
-  trick: Trick,
-  hands: readonly Hand[],
-  trump: Suit,
-): State {
+function resolveCompletedTrick(state: State, trick: Trick, hands: readonly Hand[], trump: Suit): State {
   const winnerSeat = TrickResolver(trick, trump);
   const resolved = makeTrick(trick.ledSuit, trick.plays, winnerSeat);
   const handsEmpty = hands.every((hand) => hand.cards.length === 0);
@@ -370,7 +426,9 @@ function resolveCompletedTrick(
  * the assembled {@link Contract}, and the variant, record it as `public.handResult`,
  * append its per-side lines to the running `public.scorePad`, and update the
  * match-scope hands-made-as-bidder counter (incremented for the bidding side when
- * the hand was made). `buriedCounters` is `0` on the Partners path (no Bury).
+ * the hand was made). `buriedCounters` is the summed counter value of the bidder's
+ * bury pile (design D5), credited to the bidding side; it is `0` on the Partners
+ * path (no Bury, so the pile is empty).
  * Then evaluate the match-end condition via {@link MatchScorer}: if the match is
  * over, advance along the legal `HandScoring → MatchComplete` edge, record the
  * `MatchResult`, clear the seat-to-act, and rest terminally; otherwise rest at
@@ -382,12 +440,14 @@ function passThroughHandScoring(state: State): State {
   if (contract === null) {
     return state;
   }
-  const result = HandScorer(state.public.melds, state.public.captured, contract, 0, state.variant);
+  // Sum the buried cards' counter values (§9): credited to the bidding side at
+  // scoring (design D5). The Partners path has an empty bury pile, so this is `0`.
+  const counters = state.variant.scoring.counters;
+  const buriedCounters = state.private.buried.reduce((sum, card) => sum + counters[card.rank], 0);
+  const result = HandScorer(state.public.melds, state.public.captured, contract, buriedCounters, state.variant);
   const scorePad = appendHand(state.public.scorePad, result.lines);
   const prior = state.public.handsMadeAsBidder;
-  const handsMadeAsBidder = result.made
-    ? { ...prior, [result.side]: (prior[result.side] ?? 0) + 1 }
-    : prior;
+  const handsMadeAsBidder = result.made ? { ...prior, [result.side]: (prior[result.side] ?? 0) + 1 } : prior;
 
   const scored = { ...state.public, handResult: result, scorePad, handsMadeAsBidder };
   const matchResult = MatchScorer(scorePad, result, handsMadeAsBidder, state.variant);
@@ -437,15 +497,9 @@ function removeCard(hands: readonly Hand[], seat: number, card: Card): Hand[] {
 }
 
 /** Credit `seat`'s capture tally with `counters` points and one more trick taken. */
-function creditCapture(
-  captured: readonly SeatCapture[],
-  seat: number,
-  counters: number,
-): SeatCapture[] {
+function creditCapture(captured: readonly SeatCapture[], seat: number, counters: number): SeatCapture[] {
   return captured.map((entry) =>
-    entry.seatIndex === seat
-      ? { ...entry, counters: entry.counters + counters, tricksTaken: entry.tricksTaken + 1 }
-      : entry,
+    entry.seatIndex === seat ? { ...entry, counters: entry.counters + counters, tricksTaken: entry.tricksTaken + 1 } : entry,
   );
 }
 

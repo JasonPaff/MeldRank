@@ -1,17 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import {
-  SINGLE_DECK_PARTNERS,
-  SINGLE_DECK_CUTTHROAT,
-  type VariantDefinition,
-} from '@meldrank/shared';
-import { reduce, createInitialState, LegalPlayValidator, type Event, type State } from './index';
+import { SINGLE_DECK_PARTNERS, SINGLE_DECK_CUTTHROAT, type VariantDefinition } from '@meldrank/shared';
+import { reduce, createInitialState, LegalPlayValidator, buryableCards, trickStrength, type Event, type State } from './index';
 
 /** Fold an ordered event log over `reduce` from a fresh initial state. */
 function fold(variant: VariantDefinition, dealerSeat: number, log: readonly Event[]) {
-  return log.reduce(
-    (state, event) => reduce(state, event),
-    createInitialState(variant, dealerSeat),
-  );
+  return log.reduce((state, event) => reduce(state, event), createInitialState(variant, dealerSeat));
 }
 
 describe('Dealing → Auction integration', () => {
@@ -122,12 +115,7 @@ describe('Dealing → Auction integration', () => {
     while (state.public.phase === 'TrickPlay') {
       const seat = state.public.seatToAct!;
       const hand = state.private.hands[seat]!;
-      const legal = LegalPlayValidator(
-        hand,
-        state.public.currentTrick,
-        state.public.trump!,
-        SINGLE_DECK_PARTNERS.trick,
-      );
+      const legal = LegalPlayValidator(hand, state.public.currentTrick, state.public.trump!, SINGLE_DECK_PARTNERS.trick);
       const card = legal[0]!;
       const event: Event = {
         type: 'playCard',
@@ -188,9 +176,7 @@ describe('Dealing → Auction integration', () => {
       { type: 'pass', seat: 0 },
       { type: 'declareTrump', seat: 1, trump: 'spades' },
     ];
-    expect(fold(SINGLE_DECK_PARTNERS, 0, partners)).toEqual(
-      fold(SINGLE_DECK_PARTNERS, 0, partners),
-    );
+    expect(fold(SINGLE_DECK_PARTNERS, 0, partners)).toEqual(fold(SINGLE_DECK_PARTNERS, 0, partners));
 
     // The Cutthroat fold runs through the deterministic widow reveal too.
     const cutthroat: Event[] = [
@@ -200,8 +186,216 @@ describe('Dealing → Auction integration', () => {
       { type: 'pass', seat: 0 },
       { type: 'declareTrump', seat: 1, trump: 'diamonds' },
     ];
-    expect(fold(SINGLE_DECK_CUTTHROAT, 0, cutthroat)).toEqual(
-      fold(SINGLE_DECK_CUTTHROAT, 0, cutthroat),
-    );
+    expect(fold(SINGLE_DECK_CUTTHROAT, 0, cutthroat)).toEqual(fold(SINGLE_DECK_CUTTHROAT, 0, cutthroat));
+  });
+});
+
+/**
+ * The forced bury at a resting `Bury`: the bidder buries the first
+ * `dealing.bury.size` eligible cards (per the bury-validator). A deterministic,
+ * always-legal policy for the integration drivers below.
+ */
+function buryEvent(state: State): Event {
+  const bidder = state.public.seatToAct!;
+  const hand = state.private.hands[bidder]!;
+  const trump = state.public.trump!;
+  const bidderMelds = state.public.melds.find((m) => m.seatIndex === bidder)?.melds ?? [];
+  const eligible = buryableCards(hand, bidderMelds, trump, state.variant.dealing.bury.restrictions);
+  const size = state.variant.dealing.bury.size;
+  if (eligible.length < size) {
+    throw new Error(`only ${eligible.length} buryable cards, need ${size}`);
+  }
+  const cards = eligible.slice(0, size).map((c) => ({
+    rank: c.rank,
+    suit: c.suit,
+    copyIndex: c.copyIndex,
+  }));
+  return { type: 'bury', seat: bidder, cards };
+}
+
+/** Play the seat-to-act's first legal card during `TrickPlay`. */
+function firstLegalPlay(state: State): Event {
+  const seat = state.public.seatToAct!;
+  const hand = state.private.hands[seat]!;
+  const legal = LegalPlayValidator(hand, state.public.currentTrick, state.public.trump!, state.variant.trick);
+  const card = legal[0]!;
+  return {
+    type: 'playCard',
+    seat,
+    card: { rank: card.rank, suit: card.suit, copyIndex: card.copyIndex },
+  };
+}
+
+/**
+ * A differentiating `TrickPlay` policy for the Cutthroat match driver: the bidder
+ * (the lone bidding seat in free-for-all) plays its strongest legal card to capture
+ * counters, the defenders dump their weakest. With distinct per-hand seeds this
+ * breaks the symmetry a fixed-card policy would create, so the three seats reach
+ * distinct cumulative scores.
+ */
+function competitivePlay(state: State): Event {
+  const seat = state.public.seatToAct!;
+  const trump = state.public.trump!;
+  const trick = state.public.currentTrick;
+  const legal = LegalPlayValidator(state.private.hands[seat]!, trick, trump, state.variant.trick);
+  const byStrengthDesc = [...legal].sort(
+    (a, b) => trickStrength(b, trump, trick.ledSuit ?? b.suit) - trickStrength(a, trump, trick.ledSuit ?? a.suit),
+  );
+  const wantsToWin = seat === state.public.contract!.seatIndex;
+  const card = wantsToWin ? byStrengthDesc[0]! : byStrengthDesc[byStrengthDesc.length - 1]!;
+  return {
+    type: 'playCard',
+    seat,
+    card: { rank: card.rank, suit: card.suit, copyIndex: card.copyIndex },
+  };
+}
+
+/**
+ * Drive a single Single-Deck Cutthroat hand from a fresh state to the first
+ * `HandScoring` (the seat left of the dealer takes the contract at the minimum, the
+ * bid winner declares the first deck suit, buries the first eligible cards, and each
+ * trick plays the first legal card). Records the event log.
+ */
+function driveCutthroatHand(seed: number): { log: Event[]; final: State } {
+  const log: Event[] = [];
+  let state = createInitialState(SINGLE_DECK_CUTTHROAT, 0);
+  const emit = (event: Event): void => {
+    log.push(event);
+    state = reduce(state, event);
+  };
+
+  let guard = 0;
+  while (state.public.phase !== 'HandScoring') {
+    if (guard++ > 5_000) throw new Error('hand did not reach HandScoring');
+    switch (state.public.phase) {
+      case 'Dealing':
+        emit({ type: 'deal', seed });
+        break;
+      case 'Auction': {
+        const seat = state.public.seatToAct!;
+        if (state.public.auction!.highBid === null) {
+          emit({ type: 'bid', seat, value: state.variant.bidding.minimumBid });
+        } else {
+          emit({ type: 'pass', seat });
+        }
+        break;
+      }
+      case 'DeclareTrump':
+        emit({
+          type: 'declareTrump',
+          seat: state.public.contract!.seatIndex,
+          trump: state.variant.deck.suits[0]!,
+        });
+        break;
+      case 'Bury':
+        emit(buryEvent(state));
+        break;
+      case 'TrickPlay':
+        emit(firstLegalPlay(state));
+        break;
+      default:
+        throw new Error(`unexpected phase ${state.public.phase}`);
+    }
+  }
+  return { log, final: state };
+}
+
+describe('Single-Deck Cutthroat — full hand and match integration', () => {
+  it('folds a full Cutthroat hand through Bury and 15 tricks to a scored HandScoring', () => {
+    const { final } = driveCutthroatHand(4242);
+
+    expect(final.public.phase).toBe('HandScoring');
+    const bidder = final.public.contract!.seatIndex;
+    // The bidder buried exactly 3 cards face-down.
+    expect(final.private.buried).toHaveLength(3);
+    // 15 tricks (3 seats × 15 cards) were played and all hands are empty.
+    expect(final.public.completedTricks).toHaveLength(15);
+    expect(final.private.hands.every((h) => h.cards.length === 0)).toBe(true);
+    // A hand result was computed; the bidding side is the bidder's seat (free-for-all).
+    const result = final.public.handResult!;
+    expect(result).not.toBeNull();
+    expect(result.side).toBe(bidder);
+    // Every counter on the table (240) plus the last-trick bonus (10) is accounted
+    // for across the captured tally and the buried pile.
+    const capturedCounters = final.public.captured.reduce((sum, c) => sum + c.counters, 0);
+    const buriedCounters = final.private.buried.reduce((sum, c) => {
+      return sum + SINGLE_DECK_CUTTHROAT.scoring.counters[c.rank];
+    }, 0);
+    expect(capturedCounters + buriedCounters).toBe(250);
+  });
+
+  it('folds a full 9-deal Cutthroat match to MatchComplete with placement standings, replaying deep-equal', () => {
+    const log: Event[] = [];
+    let state = createInitialState(SINGLE_DECK_CUTTHROAT, 0);
+    let seed = 1;
+    const emit = (event: Event): void => {
+      log.push(event);
+      state = reduce(state, event);
+    };
+
+    let guard = 0;
+    while (state.public.phase !== 'MatchComplete') {
+      if (guard++ > 50_000) throw new Error('match did not terminate');
+      switch (state.public.phase) {
+        case 'Dealing':
+        case 'HandScoring':
+          emit({ type: 'deal', seed: seed++ });
+          break;
+        case 'Auction': {
+          const seat = state.public.seatToAct!;
+          if (state.public.auction!.highBid === null) {
+            emit({ type: 'bid', seat, value: state.variant.bidding.minimumBid });
+          } else {
+            emit({ type: 'pass', seat });
+          }
+          break;
+        }
+        case 'DeclareTrump':
+          emit({
+            type: 'declareTrump',
+            seat: state.public.contract!.seatIndex,
+            trump: state.variant.deck.suits[0]!,
+          });
+          break;
+        case 'Bury':
+          emit(buryEvent(state));
+          break;
+        case 'TrickPlay':
+          emit(competitivePlay(state));
+          break;
+        default:
+          throw new Error(`unexpected phase ${state.public.phase}`);
+      }
+    }
+
+    const result = state.public.matchResult!;
+    expect(result).not.toBeNull();
+    expect(result.complete).toBe(true);
+    // Cutthroat is rated on individual placement across the three teamless seats.
+    expect(result.ratingBasis).toBe('individual-placement');
+    expect(result.standings).toHaveLength(3);
+    // A fixed-deals match plays exactly 9 hands.
+    expect(state.public.scorePad.hands).toHaveLength(9);
+    // Standings track the running score pad.
+    for (const standing of result.standings) {
+      expect(standing.cumulative).toBe(state.public.scorePad.cumulative[standing.side]);
+    }
+    // Placements are derived correctly from the cumulative / hands-made-as-bidder
+    // ranking (the share-and-skip rule): each side's placement is one more than the
+    // number of sides that strictly out-rank it, and placement 1 is the only win.
+    const ranksAhead = (s: (typeof result.standings)[number]): number =>
+      result.standings.filter(
+        (o) => o.cumulative > s.cumulative || (o.cumulative === s.cumulative && o.handsMadeAsBidder > s.handsMadeAsBidder),
+      ).length;
+    for (const standing of result.standings) {
+      expect(standing.placement).toBe(ranksAhead(standing) + 1);
+      expect(standing.outcome).toBe(standing.placement === 1 ? 'win' : 'loss');
+    }
+    // At least one side placed first.
+    expect(result.standings.some((s) => s.placement === 1)).toBe(true);
+
+    // Folding the same log from scratch reproduces the terminal state exactly.
+    const replay = log.reduce((s, event) => reduce(s, event), createInitialState(SINGLE_DECK_CUTTHROAT, 0));
+    expect(replay).toEqual(state);
   });
 });

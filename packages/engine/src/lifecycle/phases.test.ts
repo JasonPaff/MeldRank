@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SINGLE_DECK_PARTNERS, SINGLE_DECK_CUTTHROAT } from '@meldrank/shared';
-import {
-  LIFECYCLE_PHASES,
-  isLegalTransition,
-  resolveActivePath,
-  type LifecyclePhase,
-} from './phases';
+import { LIFECYCLE_PHASES, isLegalTransition, resolveActivePath, type LifecyclePhase } from './phases';
 
 describe('Lifecycle phases', () => {
   it('is exactly the ten documented states', () => {
@@ -55,14 +50,7 @@ describe('Legal transition table', () => {
 describe('resolveActivePath', () => {
   it('skips widow, passing, and bury for Partners', () => {
     const path: LifecyclePhase[] = resolveActivePath(SINGLE_DECK_PARTNERS);
-    expect(path).toEqual([
-      'Dealing',
-      'Auction',
-      'DeclareTrump',
-      'Melding',
-      'TrickPlay',
-      'HandScoring',
-    ]);
+    expect(path).toEqual(['Dealing', 'Auction', 'DeclareTrump', 'Melding', 'TrickPlay', 'HandScoring']);
     expect(path).not.toContain('WidowReveal');
     expect(path).not.toContain('Passing');
     expect(path).not.toContain('Bury');
@@ -70,16 +58,7 @@ describe('resolveActivePath', () => {
 
   it('includes widow reveal and bury but not passing for Cutthroat', () => {
     const path = resolveActivePath(SINGLE_DECK_CUTTHROAT);
-    expect(path).toEqual([
-      'Dealing',
-      'Auction',
-      'WidowReveal',
-      'DeclareTrump',
-      'Melding',
-      'Bury',
-      'TrickPlay',
-      'HandScoring',
-    ]);
+    expect(path).toEqual(['Dealing', 'Auction', 'WidowReveal', 'DeclareTrump', 'Melding', 'Bury', 'TrickPlay', 'HandScoring']);
     expect(path).not.toContain('Passing');
   });
 

@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  VariantDefinitionSchema,
-  widowEnabled,
-  buryEnabled,
-  passingEnabled,
-  type VariantDefinition,
-} from './schema';
+import { VariantDefinitionSchema, widowEnabled, buryEnabled, passingEnabled, type VariantDefinition } from './schema';
 
 /**
  * A fully specified, valid variant used as the baseline for accept/reject tests.

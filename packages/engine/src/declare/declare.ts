@@ -16,9 +16,7 @@ import type { Bid } from '../domain/entities';
  *   state unchanged.
  * - `declared` — legal; the caller records `trump` and advances the phase.
  */
-export type DeclareStep =
-  | { readonly status: 'rejected' }
-  | { readonly status: 'declared'; readonly trump: Suit };
+export type DeclareStep = { readonly status: 'rejected' } | { readonly status: 'declared'; readonly trump: Suit };
 
 /**
  * Apply a `declareTrump` of `trump` by `seat`. Legal only when `contract` is the
@@ -26,12 +24,7 @@ export type DeclareStep =
  * `deckSuits` (the active deck's suits). The phase guard (only reachable in
  * `DeclareTrump`) is the reducer's responsibility; this validates seat and suit.
  */
-export function declareTrump(
-  contract: Bid | null,
-  deckSuits: readonly Suit[],
-  seat: number,
-  trump: Suit,
-): DeclareStep {
+export function declareTrump(contract: Bid | null, deckSuits: readonly Suit[], seat: number, trump: Suit): DeclareStep {
   if (contract === null || seat !== contract.seatIndex) {
     return { status: 'rejected' };
   }

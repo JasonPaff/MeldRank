@@ -108,12 +108,7 @@ describe('TrickPlay — accept / reject', () => {
 
   it('rejects an illegal play (a discard while the led suit is held)', () => {
     // Seat 1 holds a heart but also spades; it must follow spades.
-    const hands = [
-      [card('A', 'spades')],
-      [card('K', 'spades'), card('A', 'hearts')],
-      [card('Q', 'spades')],
-      [card('J', 'spades')],
-    ];
+    const hands = [[card('A', 'spades')], [card('K', 'spades'), card('A', 'hearts')], [card('Q', 'spades')], [card('J', 'spades')]];
     const state = trickPlayState(hands, 'hearts', 0);
     const led = reduce(state, play(0, card('A', 'spades')));
     expect(reduce(led, play(1, card('A', 'hearts')))).toBe(led); // off-suit discard rejected
@@ -171,11 +166,7 @@ describe('TrickPlay — trick resolution and the loop', () => {
   });
 
   it('rejects a playCard after the hand has advanced to HandScoring', () => {
-    const state = trickPlayState(
-      [[card('A', 'spades')], [card('K', 'spades')], [card('Q', 'spades')], [card('J', 'spades')]],
-      'hearts',
-      0,
-    );
+    const state = trickPlayState([[card('A', 'spades')], [card('K', 'spades')], [card('Q', 'spades')], [card('J', 'spades')]], 'hearts', 0);
     const done = foldPlays(state, [
       play(0, card('A', 'spades')),
       play(1, card('K', 'spades')),

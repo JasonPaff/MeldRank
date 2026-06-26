@@ -3,24 +3,9 @@
  * constructors/helpers for Card, Deck, Seat, Hand, Bid/Contract, Meld, Trick,
  * and ScorePad. No rules logic lives here.
  */
-export {
-  makeCard,
-  cardValueKey,
-  cardIdentityKey,
-  cardsValueEqual,
-  cardsIdentical,
-  type Rank,
-  type Suit,
-  type Card,
-} from './card';
+export { makeCard, cardValueKey, cardIdentityKey, cardsValueEqual, cardsIdentical, type Rank, type Suit, type Card } from './card';
 
-export {
-  buildDeck,
-  buildDeckForVariant,
-  deckSpecFromVariant,
-  type DeckSpec,
-  type Deck,
-} from './deck';
+export { buildDeck, buildDeckForVariant, deckSpecFromVariant, type DeckSpec, type Deck } from './deck';
 
 export { deriveSeats, type Seat } from './seat';
 

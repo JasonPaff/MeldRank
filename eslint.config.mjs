@@ -7,14 +7,7 @@ import prettier from 'eslint-config-prettier';
 
 export default tseslint.config(
   {
-    ignores: [
-      '**/dist/**',
-      '**/.next/**',
-      '**/node_modules/**',
-      '**/coverage/**',
-      '**/.turbo/**',
-      '**/next-env.d.ts',
-    ],
+    ignores: ['**/dist/**', '**/.next/**', '**/node_modules/**', '**/coverage/**', '**/.turbo/**', '**/next-env.d.ts'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -50,10 +43,7 @@ export default tseslint.config(
       // keeps `@meldrank/shared` (Zod, drivers) erased at build. Enforce
       // `import type` everywhere so an accidental value import is caught at lint
       // time with an autofix, not only by the engine's runtime invariant test.
-      '@typescript-eslint/consistent-type-imports': [
-        'error',
-        { prefer: 'type-imports', fixStyle: 'separate-type-imports' },
-      ],
+      '@typescript-eslint/consistent-type-imports': ['error', { prefer: 'type-imports', fixStyle: 'separate-type-imports' }],
       // The engine is barrel-heavy with many intra-package modules; forbid import
       // cycles before they can form.
       'import-x/no-cycle': 'error',

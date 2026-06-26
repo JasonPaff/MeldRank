@@ -3,10 +3,4 @@
  * table, and the variant-aware active-path resolver. Structure only — no phase
  * logic.
  */
-export {
-  LIFECYCLE_PHASES,
-  OPTIONAL_PHASES,
-  isLegalTransition,
-  resolveActivePath,
-  type LifecyclePhase,
-} from './phases';
+export { LIFECYCLE_PHASES, OPTIONAL_PHASES, isLegalTransition, resolveActivePath, type LifecyclePhase } from './phases';

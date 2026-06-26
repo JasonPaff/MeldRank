@@ -42,6 +42,9 @@ export * from './declare';
 /** The MeldDetector: the pure maximum-legal-meld computation for the Melding phase. */
 export * from './meld';
 
+/** The bury-validator: the pure buryable-card eligibility for the Bury phase. */
+export * from './bury';
+
 /** The TrickPlay drivers: the LegalPlayValidator, the TrickResolver, and the strength comparator. */
 export * from './play';
 

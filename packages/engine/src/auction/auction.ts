@@ -79,12 +79,7 @@ export function openAuction(playerCount: number, dealerSeat: number): AuctionSta
  * `value` sits on the increment grid (`minimumBid + k × increment`). A legal bid
  * becomes the new high bid and advances the turn; an illegal bid is rejected.
  */
-export function applyBid(
-  auction: AuctionState,
-  params: AuctionParams,
-  seat: number,
-  value: number,
-): AuctionStep {
+export function applyBid(auction: AuctionState, params: AuctionParams, seat: number, value: number): AuctionStep {
   if (seat !== auction.toAct || !auction.live[seat]) {
     return { status: 'rejected' };
   }
@@ -114,12 +109,7 @@ export function applyBid(
  * Otherwise the turn advances to the next live seat. An out-of-turn or
  * already-passed `pass` is rejected.
  */
-export function applyPass(
-  auction: AuctionState,
-  params: AuctionParams,
-  dealerSeat: number,
-  seat: number,
-): AuctionStep {
+export function applyPass(auction: AuctionState, params: AuctionParams, dealerSeat: number, seat: number): AuctionStep {
   if (seat !== auction.toAct || !auction.live[seat]) {
     return { status: 'rejected' };
   }

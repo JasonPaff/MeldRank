@@ -24,8 +24,6 @@ export type WebEnv = z.infer<typeof webEnv>;
 export const webEnvKeys = Object.keys(webEnv.shape);
 
 /** Validate and return the typed, frozen public web environment. */
-export function loadWebEnv(
-  source: Record<string, string | undefined> = process.env,
-): Readonly<WebEnv> {
+export function loadWebEnv(source: Record<string, string | undefined> = process.env): Readonly<WebEnv> {
   return parseEnv(webEnv, source);
 }

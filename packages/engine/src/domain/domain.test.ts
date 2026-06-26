@@ -3,16 +3,7 @@ import { SINGLE_DECK_PARTNERS, SINGLE_DECK_CUTTHROAT } from '@meldrank/shared';
 import { makeCard, cardsValueEqual, cardsIdentical, cardValueKey, cardIdentityKey } from './card';
 import { buildDeck, buildDeckForVariant, deckSpecFromVariant } from './deck';
 import { deriveSeats } from './seat';
-import {
-  makeHand,
-  makeBid,
-  makeContract,
-  makeMeld,
-  makeTrick,
-  makeHandScoreLine,
-  createScorePad,
-  appendHand,
-} from './entities';
+import { makeHand, makeBid, makeContract, makeMeld, makeTrick, makeHandScoreLine, createScorePad, appendHand } from './entities';
 
 describe('Card', () => {
   it('treats the two copies of a card as value-equal but distinct in identity', () => {

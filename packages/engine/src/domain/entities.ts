@@ -64,12 +64,7 @@ export interface Meld {
 }
 
 /** Construct a {@link Meld}. */
-export function makeMeld(
-  type: string,
-  cards: readonly Card[],
-  value: number,
-  meldClass: MeldClass,
-): Meld {
+export function makeMeld(type: string, cards: readonly Card[], value: number, meldClass: MeldClass): Meld {
   return { type, cards, value, class: meldClass };
 }
 
@@ -90,11 +85,7 @@ export interface Trick {
 }
 
 /** Construct a {@link Trick}. Defaults to an empty, unresolved trick. */
-export function makeTrick(
-  ledSuit: Suit | null = null,
-  plays: readonly TrickPlay[] = [],
-  winnerSeatIndex: number | null = null,
-): Trick {
+export function makeTrick(ledSuit: Suit | null = null, plays: readonly TrickPlay[] = [], winnerSeatIndex: number | null = null): Trick {
   return { ledSuit, plays, winnerSeatIndex };
 }
 

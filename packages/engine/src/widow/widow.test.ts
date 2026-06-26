@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  SINGLE_DECK_CUTTHROAT,
-  SINGLE_DECK_PARTNERS,
-  type VariantDefinition,
-} from '@meldrank/shared';
+import { SINGLE_DECK_CUTTHROAT, SINGLE_DECK_PARTNERS, type VariantDefinition } from '@meldrank/shared';
 import { reduce, createInitialState, type Event, type State } from '../index';
 import { cardIdentityKey, makeCard } from '../domain/card';
 import { makeHand } from '../domain/entities';
@@ -11,10 +7,7 @@ import { revealWidow } from './widow';
 
 /** Fold an ordered event log over `reduce` from a fresh initial state. */
 function fold(variant: VariantDefinition, dealerSeat: number, log: readonly Event[]): State {
-  return log.reduce(
-    (state, event) => reduce(state, event),
-    createInitialState(variant, dealerSeat),
-  );
+  return log.reduce((state, event) => reduce(state, event), createInitialState(variant, dealerSeat));
 }
 
 /** A multiset of card identity keys for every card across all hands and the widow. */
@@ -30,10 +23,7 @@ function dealtMultiset(state: State): Record<string, number> {
 
 describe('revealWidow (pure)', () => {
   it("appends the widow to the winner's hand and empties the widow", () => {
-    const hands = [
-      makeHand(0, [makeCard('A', 'spades', 0)]),
-      makeHand(1, [makeCard('K', 'hearts', 0)]),
-    ];
+    const hands = [makeHand(0, [makeCard('A', 'spades', 0)]), makeHand(1, [makeCard('K', 'hearts', 0)])];
     const widow = [makeCard('9', 'clubs', 0), makeCard('Q', 'diamonds', 1)];
 
     const result = revealWidow(hands, widow, 1);

@@ -128,12 +128,7 @@ describe('HandScoring — pass-through wiring', () => {
   it('forfeits a trickless side’s meld via the meld-needs-a-trick gate', () => {
     // One trick: seat 0 (side 0) wins everything; side 1 takes no trick. Side 1's
     // recorded 40 meld is voided; the bidding side still makes on meld + counters.
-    const oneCardHands = [
-      [card('A', 'spades')],
-      [card('K', 'spades')],
-      [card('Q', 'spades')],
-      [card('J', 'spades')],
-    ];
+    const oneCardHands = [[card('A', 'spades')], [card('K', 'spades')], [card('Q', 'spades')], [card('J', 'spades')]];
     const melds = [seatMeld(0, 230), seatMeld(1, 40)];
     const final = foldPlays(trickPlayState(oneCardHands, 'hearts', 0, melds, 250), [
       play(0, card('A', 'spades')),

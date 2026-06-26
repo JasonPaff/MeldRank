@@ -82,10 +82,7 @@ export function MatchScorer(
  * cumulative keys are the authoritative set of sides; the counter keys are unioned
  * in for robustness (a side that bid-and-made always also scored a line).
  */
-function buildTallies(
-  scorePad: ScorePad,
-  handsMadeAsBidder: Readonly<Record<number, number>>,
-): SideTally[] {
+function buildTallies(scorePad: ScorePad, handsMadeAsBidder: Readonly<Record<number, number>>): SideTally[] {
   const sideIds = new Set<number>();
   for (const key of Object.keys(scorePad.cumulative)) sideIds.add(Number(key));
   for (const key of Object.keys(handsMadeAsBidder)) sideIds.add(Number(key));
@@ -166,8 +163,7 @@ function assignPlacements(ordered: readonly SideTally[]): MatchStanding[] {
   for (let i = 0; i < ordered.length; i++) {
     const tally = ordered[i]!;
     const previous = standings[i - 1];
-    const placement =
-      previous !== undefined && fullyTied(tally, ordered[i - 1]!) ? previous.placement : i + 1;
+    const placement = previous !== undefined && fullyTied(tally, ordered[i - 1]!) ? previous.placement : i + 1;
     standings.push({
       side: tally.side,
       cumulative: tally.cumulative,

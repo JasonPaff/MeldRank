@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  PACKAGE_NAME,
-  healthy,
-  HealthSchema,
-  VariantDefinitionSchema,
-  SINGLE_DECK_PARTNERS,
-} from './index';
+import { PACKAGE_NAME, healthy, HealthSchema, VariantDefinitionSchema, SINGLE_DECK_PARTNERS } from './index';
 
 describe('@meldrank/shared', () => {
   it('exposes its package name', () => {

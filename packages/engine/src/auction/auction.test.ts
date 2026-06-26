@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  applyBid,
-  applyPass,
-  openAuction,
-  type AuctionParams,
-  type AuctionState,
-  type AuctionStep,
-} from './auction';
+import { applyBid, applyPass, openAuction, type AuctionParams, type AuctionState, type AuctionStep } from './auction';
 
 /** Single-Deck Partners auction parameters (minimum 250, increment 10, dealer forced). */
 const PARTNERS: AuctionParams = {
@@ -22,26 +15,17 @@ const CUTTHROAT: AuctionParams = {
   allPassRule: 'redeal',
 };
 
-type Move =
-  | { readonly kind: 'bid'; readonly seat: number; readonly value: number }
-  | { readonly kind: 'pass'; readonly seat: number };
+type Move = { readonly kind: 'bid'; readonly seat: number; readonly value: number } | { readonly kind: 'pass'; readonly seat: number };
 
 /** Run a sequence of moves from an opening auction, returning the final step. */
-function run(
-  initial: AuctionState,
-  params: AuctionParams,
-  dealerSeat: number,
-  moves: readonly Move[],
-): AuctionStep {
+function run(initial: AuctionState, params: AuctionParams, dealerSeat: number, moves: readonly Move[]): AuctionStep {
   let step: AuctionStep = { status: 'continue', auction: initial };
   for (const move of moves) {
     if (step.status !== 'continue') {
       throw new Error('auction already resolved');
     }
     step =
-      move.kind === 'bid'
-        ? applyBid(step.auction, params, move.seat, move.value)
-        : applyPass(step.auction, params, dealerSeat, move.seat);
+      move.kind === 'bid' ? applyBid(step.auction, params, move.seat, move.value) : applyPass(step.auction, params, dealerSeat, move.seat);
   }
   return step;
 }

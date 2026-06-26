@@ -28,12 +28,7 @@ function phaseState(phase: LifecyclePhase, seatToAct: number | null): State {
 }
 
 /** A `TrickPlay` state with a controlled hand for the seat-to-act and trump. */
-function trickState(
-  seat: number,
-  hand: readonly Card[],
-  trump: Suit,
-  plays: readonly TrickPlay[] = [],
-): State {
+function trickState(seat: number, hand: readonly Card[], trump: Suit, plays: readonly TrickPlay[] = []): State {
   const base = createInitialState(SINGLE_DECK_PARTNERS, 0);
   const ledSuit = plays.length > 0 ? plays[0]!.card.suit : null;
   return {
@@ -81,11 +76,7 @@ describe('TimeoutMove — the TrickPlay arm (task 3.3)', () => {
   it('the leader plays the lowest-rank card (rank value, not trick strength)', () => {
     // Hand spans ranks; trump is hearts. The weakest rank is 9 (regardless of
     // trump), so the 9♣ is forced even though A♠ and Q♠ outrank it in a trick.
-    const state = trickState(
-      0,
-      [card('A', 'spades'), card('Q', 'spades'), card('9', 'clubs')],
-      'hearts',
-    );
+    const state = trickState(0, [card('A', 'spades'), card('Q', 'spades'), card('9', 'clubs')], 'hearts');
     expect(TimeoutMove(state)).toEqual({
       type: 'playCard',
       seat: 0,
@@ -154,19 +145,9 @@ describe('TimeoutMove — the TrickPlay arm (task 3.3)', () => {
       const state = trickState(0, hand, trump, plays);
       const forced = TimeoutMove(state);
       expect(forced?.type).toBe('playCard');
-      const legal = LegalPlayValidator(
-        makeHand(0, hand),
-        state.public.currentTrick,
-        trump,
-        SINGLE_DECK_PARTNERS.trick,
-      );
+      const legal = LegalPlayValidator(makeHand(0, hand), state.public.currentTrick, trump, SINGLE_DECK_PARTNERS.trick);
       const chosen = forced!.type === 'playCard' ? forced!.card : null;
-      expect(
-        legal.some(
-          (c) =>
-            c.rank === chosen!.rank && c.suit === chosen!.suit && c.copyIndex === chosen!.copyIndex,
-        ),
-      ).toBe(true);
+      expect(legal.some((c) => c.rank === chosen!.rank && c.suit === chosen!.suit && c.copyIndex === chosen!.copyIndex)).toBe(true);
     }
   });
 });

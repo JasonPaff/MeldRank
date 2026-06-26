@@ -26,13 +26,7 @@ export interface WidowRevealResult {
  * hands and widow are not mutated. The union of all hands and the (now empty)
  * widow conserves the dealt cards as a multiset: no card is lost or duplicated.
  */
-export function revealWidow(
-  hands: readonly Hand[],
-  widow: readonly Card[],
-  winnerSeat: number,
-): WidowRevealResult {
-  const nextHands = hands.map((hand) =>
-    hand.seatIndex === winnerSeat ? makeHand(hand.seatIndex, [...hand.cards, ...widow]) : hand,
-  );
+export function revealWidow(hands: readonly Hand[], widow: readonly Card[], winnerSeat: number): WidowRevealResult {
+  const nextHands = hands.map((hand) => (hand.seatIndex === winnerSeat ? makeHand(hand.seatIndex, [...hand.cards, ...widow]) : hand));
   return { hands: nextHands, widow: [], revealedWidow: widow };
 }

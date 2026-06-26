@@ -5,20 +5,5 @@
  * slice in this change.
  */
 export { reduce } from './reduce';
-export {
-  createInitialState,
-  getContract,
-  type State,
-  type PublicState,
-  type PrivateState,
-  type SeatMeld,
-  type SeatCapture,
-} from './state';
-export {
-  EVENT_KINDS,
-  type Event,
-  type EventKind,
-  type SystemEvent,
-  type DealEvent,
-  type TimeoutEvent,
-} from './events';
+export { createInitialState, getContract, type State, type PublicState, type PrivateState, type SeatMeld, type SeatCapture } from './state';
+export { EVENT_KINDS, type Event, type EventKind, type SystemEvent, type DealEvent, type TimeoutEvent } from './events';

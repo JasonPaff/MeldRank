@@ -26,7 +26,5 @@ if (process.env.NODE_ENV !== 'test') {
   const port = env.PORT ?? 3001;
   const server = createHTTPServer({ router: appRouter });
   server.listen(port);
-  console.log(
-    `[api] tRPC stub listening on :${port} (db + redis clients ready: ${!!db && !!redis})`,
-  );
+  console.log(`[api] tRPC stub listening on :${port} (db + redis clients ready: ${!!db && !!redis})`);
 }

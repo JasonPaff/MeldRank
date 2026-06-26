@@ -9,22 +9,16 @@ import { apiEnv, botsEnv, matchEnv, type ApiEnv, type BotsEnv, type MatchEnv } f
  */
 
 /** Validate and return the typed, frozen environment for `apps/api`. */
-export function loadApiEnv(
-  source: Record<string, string | undefined> = process.env,
-): Readonly<ApiEnv> {
+export function loadApiEnv(source: Record<string, string | undefined> = process.env): Readonly<ApiEnv> {
   return parseEnv(apiEnv, source);
 }
 
 /** Validate and return the typed, frozen environment for `apps/match`. */
-export function loadMatchEnv(
-  source: Record<string, string | undefined> = process.env,
-): Readonly<MatchEnv> {
+export function loadMatchEnv(source: Record<string, string | undefined> = process.env): Readonly<MatchEnv> {
   return parseEnv(matchEnv, source);
 }
 
 /** Validate and return the typed, frozen environment for `apps/bots`. */
-export function loadBotsEnv(
-  source: Record<string, string | undefined> = process.env,
-): Readonly<BotsEnv> {
+export function loadBotsEnv(source: Record<string, string | undefined> = process.env): Readonly<BotsEnv> {
   return parseEnv(botsEnv, source);
 }

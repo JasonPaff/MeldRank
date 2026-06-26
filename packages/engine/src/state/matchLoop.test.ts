@@ -257,10 +257,7 @@ describe('match loop — full Partners match integration', () => {
     expect(final.public.scorePad.hands.length).toBeGreaterThan(1);
 
     // Folding the same log from scratch reproduces the terminal state exactly.
-    const replay = log.reduce(
-      (s, event) => reduce(s, event),
-      createInitialState(SINGLE_DECK_PARTNERS, 0),
-    );
+    const replay = log.reduce((s, event) => reduce(s, event), createInitialState(SINGLE_DECK_PARTNERS, 0));
     expect(replay).toEqual(final);
   });
 });

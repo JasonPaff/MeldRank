@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  SINGLE_DECK_CUTTHROAT,
-  SINGLE_DECK_PARTNERS,
-  type VariantDefinition,
-} from '@meldrank/shared';
+import { SINGLE_DECK_CUTTHROAT, SINGLE_DECK_PARTNERS, type VariantDefinition } from '@meldrank/shared';
 import { makeContract, type Contract } from '../domain/entities';
 import type { SeatCapture, SeatMeld } from '../state/state';
 import { HandScorer } from './score';
@@ -19,14 +15,10 @@ const cap = (seatIndex: number, counters: number, tricksTaken: number): SeatCapt
 });
 
 /** A contract on `seatIndex` at `value` (trump is immaterial to scoring). */
-const contract = (seatIndex: number, value: number): Contract =>
-  makeContract(seatIndex, value, 'hearts');
+const contract = (seatIndex: number, value: number): Contract => makeContract(seatIndex, value, 'hearts');
 
 /** Look up a side's line by side id. */
-const lineOf = (
-  result: ReturnType<typeof HandScorer>,
-  side: number,
-): { side: number; meld: number; counters: number; total: number } =>
+const lineOf = (result: ReturnType<typeof HandScorer>, side: number): { side: number; meld: number; counters: number; total: number } =>
   result.lines.find((line) => line.side === side)!;
 
 describe('HandScorer — side folding', () => {

@@ -124,6 +124,14 @@ export interface PrivateState {
   readonly hands: readonly Hand[];
   /** The widow, unrevealed until the WidowReveal phase. */
   readonly widow: readonly Card[];
+  /**
+   * The bidder's face-down bury pile (design D3): the cards discarded at the
+   * `Bury` phase (bury-enabled variants). Private — buried cards are face-down
+   * ("Single-Deck Cutthroat" §6) — and credited to the bidder at `HandScoring`.
+   * Empty until a bury is applied, and empty for the whole hand on the Partners
+   * path (no `Bury`).
+   */
+  readonly buried: readonly Card[];
 }
 
 /**
@@ -163,7 +171,7 @@ export function createInitialState(variant: VariantDefinition, dealerSeat = 0): 
       matchResult: null,
       outcome: null,
     },
-    private: { hands: [], widow: [] },
+    private: { hands: [], widow: [], buried: [] },
   };
 }
 
