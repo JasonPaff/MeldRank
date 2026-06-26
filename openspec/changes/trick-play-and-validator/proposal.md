@@ -1,0 +1,30 @@
+## Why
+
+The `meld-detector` change (archived) drove the lifecycle through `Melding` and now rests at the variant's next active phase — `TrickPlay` for Partners, `Bury` for Cutthroat — with `playCard` rejected by the phase guard. **TrickPlay** is the next phase in the locked machine ("Game Engine — Abstract Model" §2) and its driver, the **LegalPlayValidator**, is named in §5 as the second of "the two hardest, highest-value pieces [that] deserve their own deep specs + exhaustive test suites... correctness here _is_ the product's integrity." It is also the hard prerequisite for `HandScoring`, which cannot total a side without the captured counters tricks produce.
+
+## What Changes
+
+- **Implement the `LegalPlayValidator` in `@meldrank/engine`** (`packages/engine/src/play/`): a pure `(hand, trickState, trump, trickRules) → legal cards` that encodes the strict pinochle obligations from "Single-Deck Partners" §7 — **follow suit if able**; if void in the led suit, **must play trump**; with neither, play anything; and **must-beat (strict):** when following the led suit play a card higher than the current winning card if able (must-head), and when playing trump onto trump, **over-trump** if able. The leader (empty trick) may play any card.
+- **Implement the `TrickResolver` in `@meldrank/engine`**: a pure `(trick, trump) → winning seat` — highest trump wins; with no trump, the highest card of the **led** suit wins; on two identical cards the one played **first** wins (`identicalCardTie: 'first-played-wins'`). Both modules share one card-strength comparator over the locked ranking `A > 10 > K > Q > J > 9`.
+- **Wire the `TrickPlay` phase loop in `reduce`.** Unlike the deterministic transient `Melding`/`WidowReveal` pass-throughs, `TrickPlay` **rests** at its phase and consumes repeated player-driven `playCard` intents: validate the played card against the `LegalPlayValidator`'s legal set and the seat-to-act, append it to the current trick, and when the trick is complete resolve the winner (`TrickResolver`), credit the trick's captured counters to the winner's side, set the winner to lead the next trick, and loop — until all hands are empty, then advance to the variant's next active phase (`HandScoring`). The bid winner leads the first trick.
+- **Advance the wired lifecycle slice** to rest at `HandScoring`: Partners runs `…Melding → TrickPlay → HandScoring`. `HandScoring` / `MatchComplete` become the new rejected frontier, exactly as `TrickPlay` was in the prior slice.
+- **Exhaustive Vitest coverage** focused on Single-Deck Partners: each legal-play branch (follow / must-trump-when-void / must-head / over-trump / free discard), the leader's freedom, trick resolution (high trump, led-suit high, identical-card tie), counter capture and the last-trick bonus, illegal plays rejected unchanged, and full 12-trick playthroughs. No runtime dependency enters `@meldrank/engine`; `@meldrank/shared` imports stay type-only.
+
+## Capabilities
+
+### New Capabilities
+
+- `legal-play-validator`: The `LegalPlayValidator` engine module — the pure function that, given a seat's hand and the in-progress trick, computes the cards that seat may legally play under follow-suit, must-trump-when-void, and strict must-beat (must-head + over-trump) rules, relative to the declared trump.
+- `trick-resolver`: The `TrickResolver` engine module — the pure function that determines the winning seat of a completed trick (highest trump, else highest of the led suit, first-played-wins on identical cards) and the per-rank counter values it captures.
+
+### Modified Capabilities
+
+- `hand-state-container`: `reduce` now drives the `Melding → TrickPlay → HandScoring` slice instead of resting at `TrickPlay`. `TrickPlay` is the first player-driven, multi-step, looping phase: `playCard` becomes a **validated, accepted** intent (validated against `LegalPlayValidator` and the seat-to-act) rather than a rejected one. `State` gains a public current-trick region and a per-side captured-counters / tricks-taken tally; the bid winner leads, the trick winner leads next, and the hand advances to `HandScoring` when hands empty. `HandScoring` (and `Bury`) remain rejected.
+
+## Impact
+
+- **Code:** `packages/engine/src/play/` — the new `LegalPlayValidator` and `TrickResolver` modules plus the shared card-strength comparator over the locked ranking. `packages/engine/src/state/state.ts` (`PublicState` gains the current trick + per-side counter/trick tally) and `state/reduce.ts` (the `TrickPlay` case: validate → append → resolve-on-complete → loop → advance). Consumes the existing `domain/` (`Card`, `Suit`, `Trick`, `TrickPlay`, `makeTrick`, `cardsValueEqual`, `cardsIdentical`), `lifecycle/` (`nextActivePhase`/`resolveActivePath`), the `PlayCardIntent`/`CardRef` and `TrickRules`/`CounterValues` _types_ from `@meldrank/shared`. New/extended Vitest suites.
+- **Dependencies:** none added — `@meldrank/engine` stays at zero runtime dependencies (the invariant test continues to hold); shared-package imports remain type-only.
+- **Downstream:** completes the trick record (captured counters per side, last-trick bonus, tricks-taken) so the eventual `HandScorer` can apply meld + counters and the "meld needs a trick" gate (§8 ruling 6). Extends — does not reshape — the `reduce` / `Event` / `State` contract. The `playCard` half of the deterministic `TimeoutMove` (Ruling 5: lowest-value legal card) is enabled by this validator but its wiring is a later change.
+- **Scope / deferred:** Partners-first, mirroring the `meld-detector` precedent. **Bury** (Cutthroat's `Melding → Bury` frontier) and **Passing** (disabled by both ranked variants) stay deferred; **HandScoring**, **MatchComplete**, the meld-needs-a-trick gate, the `TimeoutMove` forced-move wiring, and any `apps/match` / `apps/web` wiring are out of scope.
+- **Design source of truth:** Linear "Game Engine — Abstract Model" (§2 lifecycle, §5 modules, Ruling 5) and "Single-Deck Partners (Canonical)" §7 (the play, must-beat strict, trick counters, last-trick bonus). No spec-level decisions are introduced that those locked docs don't already establish.
