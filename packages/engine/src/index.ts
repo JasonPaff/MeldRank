@@ -47,3 +47,6 @@ export * from './play';
 
 /** The HandScorer: the pure per-side hand-result computation for the HandScoring phase. */
 export * from './score';
+
+/** The MatchScorer: the pure match-end evaluation, standings, and rating basis. */
+export * from './match';

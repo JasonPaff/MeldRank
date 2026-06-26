@@ -14,6 +14,7 @@ import {
 import type { Card } from '../domain/card';
 import type { AuctionState } from '../auction/auction';
 import type { HandResult } from '../score/score';
+import type { MatchResult } from '../match/match';
 
 /**
  * The engine's `State`, per design decisions 5 and the "Public and private state
@@ -100,6 +101,19 @@ export interface PublicState {
    * D7). A hand's lines are appended at `HandScoring`.
    */
   readonly scorePad: ScorePad;
+  /**
+   * **Match scope** (design D4). Per-side count of hands that side **bid and
+   * made** — the Ruling 2 placement tiebreak `MatchScorer` reads. Initialized
+   * empty; incremented at each `HandScoring` for `handResult.side` when the hand
+   * was made. Preserved across hands of a match (it is not a per-hand field).
+   */
+  readonly handsMadeAsBidder: Readonly<Record<number, number>>;
+  /**
+   * **Match scope** (design D4). The final `MatchResult` (standings + rating
+   * basis) once the lifecycle reaches `MatchComplete`; `null` for every phase
+   * before the match ends.
+   */
+  readonly matchResult: MatchResult | null;
   /** A `redeal` signal for the room to re-deal (Cutthroat all-pass), else `null`. */
   readonly outcome: 'redeal' | null;
 }
@@ -145,6 +159,8 @@ export function createInitialState(variant: VariantDefinition, dealerSeat = 0): 
       captured: [],
       handResult: null,
       scorePad: createScorePad(),
+      handsMadeAsBidder: {},
+      matchResult: null,
       outcome: null,
     },
     private: { hands: [], widow: [] },

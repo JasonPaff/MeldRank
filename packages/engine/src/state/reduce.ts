@@ -9,9 +9,16 @@ import { declareTrump } from '../declare/declare';
 import { MeldDetector } from '../meld/meld';
 import { LegalPlayValidator, TrickResolver, capturedCounters } from '../play';
 import { HandScorer } from '../score/score';
+import { MatchScorer } from '../match/match';
 import { cardsIdentical, type Card } from '../domain/card';
 import { appendHand, makeHand, makeTrick, type Hand, type Trick } from '../domain/entities';
-import { getContract, type SeatCapture, type SeatMeld, type State } from './state';
+import {
+  createInitialState,
+  getContract,
+  type SeatCapture,
+  type SeatMeld,
+  type State,
+} from './state';
 import type { DealEvent, Event } from './events';
 
 /**
@@ -34,9 +41,13 @@ import type { DealEvent, Event } from './events';
  * repeated `playCard` intents: each is validated against the `LegalPlayValidator`
  * and the seat-to-act, appended to the current trick, and on a complete trick the
  * winner (`TrickResolver`) is credited its captured counters and leads next —
- * looping until hands empty, then advancing to `HandScoring`. `Bury` and any
- * event in `HandScoring` / `MatchComplete` are accepted by the type but rejected
- * by the guard until their phases are implemented.
+ * looping until hands empty, then advancing to `HandScoring`. At `HandScoring` the
+ * hand is scored, the hands-made-as-bidder counter updated, and `MatchScorer`
+ * evaluates the match-end condition: if the match is over, `reduce` advances to a
+ * terminal `MatchComplete` carrying the `MatchResult`; otherwise it rests at
+ * `HandScoring` and a `deal` starts the next hand (dealer rotated, per-hand state
+ * reset, score pad and match-scope counters preserved). `MatchComplete` rejects
+ * every event; `Bury` remains accepted by the type but rejected until implemented.
  */
 export function reduce(state: State, event: Event): State {
   switch (state.public.phase) {
@@ -48,9 +59,13 @@ export function reduce(state: State, event: Event): State {
       return event.type === 'declareTrump' ? applyDeclareTrump(state, event) : state;
     case 'TrickPlay':
       return event.type === 'playCard' ? applyPlayCard(state, event) : state;
+    case 'HandScoring':
+      // The match is provably not over here (over ⇒ `MatchComplete`), so a `deal`
+      // starts the next hand (design D5/D6); every other event is rejected.
+      return event.type === 'deal' ? startNextHand(state, event) : state;
     default:
-      // No later phase is driven in this slice; every event (`Bury`, anything in
-      // `HandScoring` / `MatchComplete`) is rejected without mutation.
+      // `MatchComplete` is terminal and `Bury` is not yet driven; every event is
+      // rejected without mutation.
       return state;
   }
 }
@@ -328,13 +343,17 @@ function resolveCompletedTrick(
 }
 
 /**
- * Pass through the `HandScoring` phase deterministically (design D6): compute the
+ * Pass through the `HandScoring` phase deterministically (design D5/D6): compute the
  * {@link HandScorer} result from the recorded melds, the per-seat capture tally,
  * the assembled {@link Contract}, and the variant, record it as `public.handResult`,
- * and append its per-side lines to the running `public.scorePad`. `buriedCounters`
- * is `0` on the Partners path (no Bury). `state` is the just-advanced state already
- * resting at `HandScoring`; the lifecycle does *not* advance toward `Dealing` /
- * `MatchComplete` (that branch is the `MatchScorer`'s).
+ * append its per-side lines to the running `public.scorePad`, and update the
+ * match-scope hands-made-as-bidder counter (incremented for the bidding side when
+ * the hand was made). `buriedCounters` is `0` on the Partners path (no Bury).
+ * Then evaluate the match-end condition via {@link MatchScorer}: if the match is
+ * over, advance along the legal `HandScoring → MatchComplete` edge, record the
+ * `MatchResult`, clear the seat-to-act, and rest terminally; otherwise rest at
+ * `HandScoring` awaiting the next `deal`. `state` is the just-advanced state already
+ * resting at `HandScoring`.
  */
 function passThroughHandScoring(state: State): State {
   const contract = getContract(state);
@@ -342,14 +361,45 @@ function passThroughHandScoring(state: State): State {
     return state;
   }
   const result = HandScorer(state.public.melds, state.public.captured, contract, 0, state.variant);
-  return {
-    ...state,
+  const scorePad = appendHand(state.public.scorePad, result.lines);
+  const prior = state.public.handsMadeAsBidder;
+  const handsMadeAsBidder = result.made
+    ? { ...prior, [result.side]: (prior[result.side] ?? 0) + 1 }
+    : prior;
+
+  const scored = { ...state.public, handResult: result, scorePad, handsMadeAsBidder };
+  const matchResult = MatchScorer(scorePad, result, handsMadeAsBidder, state.variant);
+  if (matchResult.complete && isLegalTransition('HandScoring', 'MatchComplete')) {
+    return {
+      ...state,
+      public: { ...scored, phase: 'MatchComplete', matchResult, seatToAct: null },
+    };
+  }
+  return { ...state, public: scored };
+}
+
+/**
+ * Start the next hand of the match from a resting `HandScoring` (design D5). Build
+ * a fresh next-hand base via {@link createInitialState} (every per-hand public and
+ * private field reset to its `Dealing` default) with the dealer rotated one seat,
+ * **preserving** the running `scorePad` and the match-scope `handsMadeAsBidder`
+ * counter, then run the standard {@link applyDeal} to deal the hands/widow and open
+ * the auction (landing at `Auction`). The match is provably not over here, so the
+ * deal is always valid.
+ */
+function startNextHand(state: State, event: DealEvent): State {
+  const { variant } = state;
+  const nextDealer = (state.public.dealerSeat + 1) % variant.seating.playerCount;
+  const base = createInitialState(variant, nextDealer);
+  const freshBase: State = {
+    ...base,
     public: {
-      ...state.public,
-      handResult: result,
-      scorePad: appendHand(state.public.scorePad, result.lines),
+      ...base.public,
+      scorePad: state.public.scorePad,
+      handsMadeAsBidder: state.public.handsMadeAsBidder,
     },
   };
+  return applyDeal(freshBase, event);
 }
 
 /** Return new hands with `card` removed from `seat`'s hand; other hands untouched. */

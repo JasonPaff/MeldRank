@@ -150,13 +150,17 @@ describe('HandScoring — pass-through wiring', () => {
     ]);
   });
 
-  it('rests at HandScoring without advancing to the next hand', () => {
+  it('rests at HandScoring below the target and starts the next hand on a deal', () => {
     const melds = [seatMeld(0, 230), seatMeld(1, 40)];
     const scored = foldPlays(trickPlayState(SPLIT_HANDS, 'hearts', 0, melds, 250), SPLIT_PLAYS);
 
+    // 250 < 1500 target → the match continues and rests at HandScoring.
     expect(scored.public.phase).toBe('HandScoring');
-    // No event advances the rested HandScoring state in this slice.
-    expect(reduce(scored, { type: 'deal', seed: 1 })).toBe(scored);
+    expect(scored.public.matchResult).toBeNull();
+    // A `deal` starts the next hand (the match-loop branch); a non-deal is rejected.
     expect(reduce(scored, play(0, card('A', 'spades')))).toBe(scored);
+    const next = reduce(scored, { type: 'deal', seed: 1 });
+    expect(next.public.phase).toBe('Auction');
+    expect(next.public.scorePad.hands).toHaveLength(1); // score pad carried forward
   });
 });

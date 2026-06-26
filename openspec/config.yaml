@@ -1,4 +1,5 @@
 schema: spec-driven
+profile: core
 
 # Project context — shown to AI when creating artifacts.
 context: |
