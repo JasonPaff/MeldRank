@@ -56,11 +56,7 @@ export function trickStrength(card: Card, trump: Suit, ledSuit: Suit): number {
  * stays winner (`identicalCardTie: 'first-played-wins'`). `plays` must be
  * non-empty and `ledSuit` is the trick's led suit.
  */
-export function winningPlay(
-  plays: readonly TrickPlay[],
-  trump: Suit,
-  ledSuit: Suit,
-): TrickPlay {
+export function winningPlay(plays: readonly TrickPlay[], trump: Suit, ledSuit: Suit): TrickPlay {
   let best = plays[0]!;
   let bestStrength = trickStrength(best.card, trump, ledSuit);
   for (let i = 1; i < plays.length; i++) {

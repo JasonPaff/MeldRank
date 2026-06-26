@@ -151,6 +151,26 @@ describe('Dealing → Auction integration', () => {
     const totalTricks = state.public.captured.reduce((sum, c) => sum + c.tricksTaken, 0);
     expect(totalTricks).toBe(12);
 
+    // HandScoring computed the per-side result and appended it to the score pad.
+    const result = state.public.handResult!;
+    expect(result).not.toBeNull();
+    // Partners folds the four seats into the two partnership sides.
+    expect(result.lines.map((line) => line.side)).toEqual([0, 1]);
+    // The bidding side is the contract seat's side (seat 2 → partnership [0, 2] = side 0).
+    expect(result.side).toBe(0);
+    expect(typeof result.made).toBe('boolean');
+    // Each line's total is consistent: meld + counters, or the set penalty (−bid).
+    for (const line of result.lines) {
+      const expected = line.side === result.side && !result.made ? -260 : line.meld + line.counters;
+      expect(line.total).toBe(expected);
+    }
+    // The pad carries exactly this hand's lines and its cumulative-by-side totals.
+    expect(state.public.scorePad.hands).toHaveLength(1);
+    expect(state.public.scorePad.hands[0]).toEqual(result.lines);
+    for (const line of result.lines) {
+      expect(state.public.scorePad.cumulative[line.side]).toBe(line.total);
+    }
+
     // Folding the same play log twice from the same post-melding state is
     // deep-equal (replay determinism).
     const replayA = playLog.reduce((s, e) => reduce(s, e), postMelding);

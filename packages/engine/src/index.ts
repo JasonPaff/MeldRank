@@ -44,3 +44,6 @@ export * from './meld';
 
 /** The TrickPlay drivers: the LegalPlayValidator, the TrickResolver, and the strength comparator. */
 export * from './play';
+
+/** The HandScorer: the pure per-side hand-result computation for the HandScoring phase. */
+export * from './score';

@@ -1,0 +1,29 @@
+## Why
+
+The `trick-play-and-validator` change (archived) drove the lifecycle through `TrickPlay` and now **rests at `HandScoring`** with everything a scorer needs already recorded in public state: each melding seat's `SeatMeld` total, the per-seat `SeatCapture` tally (captured counters incl. the last-trick bonus, and tricks taken), and the winning `Bid`. `HandScoring` is the next phase in the locked machine ("Game Engine — Abstract Model" §2) and its driver — the **HandScorer** (§5) — is what turns those raw tallies into a per-side hand result and the made/set verdict that the score pad and, later, the `MatchScorer` consume. Until it exists the engine can play a whole hand but cannot say who won it.
+
+## What Changes
+
+- **Implement the `HandScorer` in `@meldrank/engine`** (`packages/engine/src/score/`): a pure `(melds, captured, contract, buriedCounters, variant) → HandResult` per "Game Engine — Abstract Model" §5 and "Single-Deck Partners" §8. It **folds seats into sides** using `seating.teams` (partnerships group seat indices into a team id; free-for-all maps each seat to its own side), summing each side's meld and captured counters.
+- **Apply the meld-needs-a-trick gate (§8, Ruling 6).** When `scoring.meldNeedsATrick` is set, a side counts its meld **only if it took at least one trick** that hand; a side that took no trick scores its counters (zero) and forfeits its meld.
+- **Evaluate made / set against the contract (§8).** The bidding side (the contract seat's side) must reach its bid: `meld + counters ≥ bid` ⇒ **made**, both sides score what they earned; otherwise **set** — the bidding side's hand total becomes the set penalty per `scoring.setPenalty` (`minus-bid-and-meld-lost`: scores nothing, meld lost, **−bid**), while the non-bidding side still scores normally (if it took a trick). The `bidder-vs-bid` scoring mode (Cutthroat: defenders score 0) is gated by `scoring.mode` so one function serves both variants.
+- **Surface the result in state and wire the `HandScoring` pass-through in `reduce`.** Like `Melding`/`WidowReveal`, `HandScoring` has no driving event: when `TrickPlay` empties the hands and advances to `HandScoring`, the engine deterministically computes the `HandScorer` result, records it as `public.handResult`, and appends its per-side lines to a running `public.scorePad` (via the existing `appendHand`). The lifecycle then **rests at `HandScoring`** with the hand scored; the `HandScoring → (Dealing | MatchComplete)` branch (a match-end decision owned by the `MatchScorer`) becomes the new rejected frontier.
+- **Exhaustive Vitest coverage** focused on Single-Deck Partners: side folding for partnerships; made vs. set boundary at exactly the bid; the set penalty (meld lost, −bid, opponents unaffected); the meld-needs-a-trick gate (meld forfeited on a trickless side, kept with one trick); counters-only and meld-only hands; plus targeted `bidder-vs-bid` / free-for-all unit cases for the pure module. No runtime dependency enters `@meldrank/engine`; `@meldrank/shared` imports stay type-only.
+
+## Capabilities
+
+### New Capabilities
+
+- `hand-scorer`: The `HandScorer` engine module — the pure function that folds each seat's recorded meld and captured counters into per-side hand results, applies the meld-needs-a-trick gate, and evaluates the bidding side's made/set verdict and set penalty against the contract, gated by the variant's scoring mode.
+
+### Modified Capabilities
+
+- `hand-state-container`: `reduce` now passes through `HandScoring` deterministically instead of resting there inert — on entering `HandScoring` it computes the `HandScorer` result and records it. `PublicState` gains a `handResult` (the scored per-side lines + made/set verdict, `null` until the hand is scored) and a running `scorePad`. `HandScoring` becomes a computed resting phase; the `HandScoring → Dealing` / `MatchComplete` branch remains rejected until the `MatchScorer` change.
+
+## Impact
+
+- **Code:** `packages/engine/src/score/` — the new `HandScorer` module and its `HandResult` shape. `packages/engine/src/state/state.ts` (`PublicState` gains `handResult` + `scorePad`; `createInitialState` seeds them) and `state/reduce.ts` (a `passThroughHandScoring` step folded into the `TrickPlay` final-trick transition, mirroring `passThroughMelding`). Consumes the existing `domain/` `HandScoreLine` / `ScorePad` / `makeHandScoreLine` / `appendHand`, the recorded `public.melds` / `public.captured` / `public.contract`, and the `Scoring` / `TeamStructure` _types_ from `@meldrank/shared`. New/extended Vitest suites.
+- **Dependencies:** none added — `@meldrank/engine` stays at zero runtime dependencies (the invariant test continues to hold); shared-package imports remain type-only.
+- **Downstream:** produces the per-hand result and the running `scorePad` the eventual `MatchScorer` reads to evaluate the match-end condition (target 1500 / fixed 9 deals), pick the next-hand-vs-`MatchComplete` branch, and apply the placement tiebreak (Ruling 2). Extends — does not reshape — the `reduce` / `Event` / `State` contract.
+- **Scope / deferred:** Partners-first, mirroring the `meld-detector` and `trick-play-and-validator` precedents. The pure module handles both `scoring.mode` values and both `setPenalty` values (it is variant-driven), but **wiring** stays on the reachable Partners path. The `MatchScorer`, the `HandScoring → Dealing` / `MatchComplete` transition and match-end evaluation, **Bury** (whose buried counters feed `buriedCounters`; Cutthroat-only and not yet wired), **Passing**, the `TimeoutMove` policy, and any `apps/match` / `apps/web` wiring are out of scope.
+- **Design source of truth:** Linear "Game Engine — Abstract Model" (§2 lifecycle, §5 modules) and "Single-Deck Partners (Canonical)" §8 (scoring the hand, meld-needs-a-trick Ruling 6, made/set, set penalty). No spec-level decisions are introduced that those locked docs don't already establish.

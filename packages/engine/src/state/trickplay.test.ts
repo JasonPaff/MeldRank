@@ -39,7 +39,11 @@ function trickPlayState(hands: readonly (readonly Card[])[], trump: Suit, leader
       contract: { seatIndex: leader, value: 250 },
       seatToAct: leader,
       currentTrick: makeTrick(),
-      captured: handObjs.map((hand) => ({ seatIndex: hand.seatIndex, counters: 0, tricksTaken: 0 })),
+      captured: handObjs.map((hand) => ({
+        seatIndex: hand.seatIndex,
+        counters: 0,
+        tricksTaken: 0,
+      })),
     },
     private: { ...base.private, hands: handObjs },
   };
@@ -167,7 +171,11 @@ describe('TrickPlay — trick resolution and the loop', () => {
   });
 
   it('rejects a playCard after the hand has advanced to HandScoring', () => {
-    const state = trickPlayState([[card('A', 'spades')], [card('K', 'spades')], [card('Q', 'spades')], [card('J', 'spades')]], 'hearts', 0);
+    const state = trickPlayState(
+      [[card('A', 'spades')], [card('K', 'spades')], [card('Q', 'spades')], [card('J', 'spades')]],
+      'hearts',
+      0,
+    );
     const done = foldPlays(state, [
       play(0, card('A', 'spades')),
       play(1, card('K', 'spades')),

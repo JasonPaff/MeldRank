@@ -1,16 +1,19 @@
 import type { Suit, VariantDefinition } from '@meldrank/shared';
 import type { LifecyclePhase } from '../lifecycle/phases';
 import {
+  createScorePad,
   makeContract,
   makeTrick,
   type Bid,
   type Contract,
   type Hand,
   type Meld,
+  type ScorePad,
   type Trick,
 } from '../domain/entities';
 import type { Card } from '../domain/card';
 import type { AuctionState } from '../auction/auction';
+import type { HandResult } from '../score/score';
 
 /**
  * The engine's `State`, per design decisions 5 and the "Public and private state
@@ -85,6 +88,18 @@ export interface PublicState {
   readonly completedTricks: readonly Trick[];
   /** The per-seat captured-counter / tricks-taken tally (design D6). */
   readonly captured: readonly SeatCapture[];
+  /**
+   * The scored per-side hand result (lines + made/set verdict) for the just-
+   * finished hand, computed when the lifecycle reaches `HandScoring`; `null`
+   * until then (design D7).
+   */
+  readonly handResult: HandResult | null;
+  /**
+   * The running scorepad — per-hand lines plus cumulative-by-side totals — that
+   * the eventual `MatchScorer` reads to evaluate the match-end condition (design
+   * D7). A hand's lines are appended at `HandScoring`.
+   */
+  readonly scorePad: ScorePad;
   /** A `redeal` signal for the room to re-deal (Cutthroat all-pass), else `null`. */
   readonly outcome: 'redeal' | null;
 }
@@ -128,6 +143,8 @@ export function createInitialState(variant: VariantDefinition, dealerSeat = 0): 
       currentTrick: makeTrick(),
       completedTricks: [],
       captured: [],
+      handResult: null,
+      scorePad: createScorePad(),
       outcome: null,
     },
     private: { hands: [], widow: [] },

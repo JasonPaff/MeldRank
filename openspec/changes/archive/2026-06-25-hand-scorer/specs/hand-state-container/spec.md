@@ -1,33 +1,4 @@
-# hand-state-container
-
-## Purpose
-
-Defines the pure `reduce(state, event): State` state container in `@meldrank/engine` and its serializable `State` shape, per "Match Runtime" §3/§4 and "Data Model" §5. It establishes the closed event union, phase-guarded application, transition-table-driven lifecycle advancement, deterministic replay, and the public/private separation that lets the Match Service derive per-seat views. This change wires only the `Dealing → Auction` slice.
-
-## Requirements
-
-### Requirement: Pure reduce state container
-
-`@meldrank/engine` SHALL expose `reduce(state, event): State` as a pure function: it SHALL NOT perform I/O, SHALL NOT mutate its inputs, and SHALL be deterministic (same `state` and `event` always yield the same result). `State` SHALL be a plain, serializable value — structurally cloneable and JSON round-trippable, carrying no class instances with behavior — so it can be folded for replay, filtered per seat, and mapped to a Colyseus schema, per "Match Runtime" §3/§4 and "Data Model" §5.
-
-#### Scenario: reduce does not mutate its input
-
-- **WHEN** `reduce(state, event)` is called
-- **THEN** the passed-in `state` is unchanged after the call and the result is a distinct value
-
-#### Scenario: State round-trips through serialization
-
-- **WHEN** a `State` is serialized to JSON and parsed back
-- **THEN** the parsed value deep-equals the original (no information lost, no behavior-bearing fields)
-
-### Requirement: Closed event union
-
-The engine SHALL define `Event` as a closed, typed union of the locked player intents (`bid`, `pass`, `declareTrump`, `playCard`, per "API Surface" §4) and the system events (`deal`, carrying the shuffle seed; `timeout`). Intent payload _types_ SHALL be consumed from `@meldrank/shared` as types only; no Zod or runtime dependency enters the engine.
-
-#### Scenario: The event kinds are exactly the documented set
-
-- **WHEN** the set of `Event` kinds is enumerated
-- **THEN** it equals exactly `bid`, `pass`, `declareTrump`, `playCard`, `deal`, and `timeout`, with no extras and none missing
+## MODIFIED Requirements
 
 ### Requirement: Phase-guarded event application
 
@@ -42,11 +13,6 @@ The engine SHALL define `Event` as a closed, typed union of the locked player in
 
 - **WHEN** a `deal` event carrying a seed is reduced while the phase is `Dealing`
 - **THEN** per-seat hands and the widow are populated and the phase advances to `Auction`
-
-#### Scenario: declareTrump is driven and Melding is applied
-
-- **WHEN** a `declareTrump` from the contract winner naming a valid suit is reduced while the phase is `DeclareTrump`
-- **THEN** the trump is recorded, each melding seat's meld is computed and recorded, and the phase advances past `Melding` to the variant's next active phase
 
 #### Scenario: A legal playCard is accepted during TrickPlay
 
@@ -66,16 +32,6 @@ The engine SHALL define `Event` as a closed, typed union of the locked player in
 ### Requirement: Lifecycle advancement via the transition table
 
 When an event concludes a phase, `reduce` SHALL advance the phase marker to the next phase using the foundation's legal-transition table and the variant's active path (`resolveActivePath`), skipping bracketed phases the variant disables. `reduce` SHALL NOT advance along a transition the table reports as illegal. Where an enabled phase has no driving player event (`WidowReveal`, `Melding`, `HandScoring`), `reduce` SHALL apply it deterministically within the concluding step and pass through to (or rest on) the next phase rather than awaiting an event for it. `TrickPlay` SHALL self-loop while hands hold cards and SHALL advance to `HandScoring` only once all hands are empty after a resolved trick; on that advance `reduce` SHALL deterministically compute the hand score (the `HandScorer` result and the appended score pad) and rest at `HandScoring`.
-
-#### Scenario: DeclareTrump drives through Melding to TrickPlay (Partners)
-
-- **WHEN** the contract winner declares trump for `SINGLE_DECK_PARTNERS`
-- **THEN** the trump is recorded, all seats' melds are computed (Partners melds at all seats), and the phase advances through `Melding` to settle at `TrickPlay` (Partners skips `Bury`)
-
-#### Scenario: DeclareTrump drives through Melding to Bury (Cutthroat)
-
-- **WHEN** the contract winner declares trump for `SINGLE_DECK_CUTTHROAT`
-- **THEN** the trump is recorded, only the bidder's meld is computed (Cutthroat melds bidder-only), and the phase advances through `Melding` to settle at `Bury`
 
 #### Scenario: TrickPlay self-loops until hands empty
 
@@ -97,15 +53,6 @@ When an event concludes a phase, `reduce` SHALL advance the phase marker to the 
 - **WHEN** the next-phase advance is computed
 - **THEN** `reduce` only follows edges the legal-transition table reports as legal, skipping bracketed phases the active variant disables
 
-### Requirement: Deterministic replay fold
-
-Folding `reduce` over an ordered event log from a given initial state SHALL be deterministic: the same initial state and the same event sequence SHALL always yield deep-equal resulting state, so a match reconstructs faithfully from its intent log plus revealed seeds ("Data Model" §5).
-
-#### Scenario: Folding the same log twice is identical
-
-- **WHEN** the same ordered event log (including the `deal` seed) is folded over `reduce` from the same initial state twice
-- **THEN** the two resulting states are deep-equal
-
 ### Requirement: Public and private state separation
 
 `State` SHALL separate per-seat private data (each seat's `Hand`, the unrevealed widow) from public data (phase, turn, auction standing, the recorded winning `Bid`, the declared trump, the revealed widow, each melding seat's recorded meld, the in-progress trick, the resolved tricks, the per-seat captured-counter / tricks-taken tally, the scored hand result, and the running score pad) so the Match Service can mechanically derive a per-seat filtered view. Recorded melds and trick plays SHALL be public (meld is laid face-up, "Single-Deck Partners" §6; each play is face-up, §7); the scored hand result and the running score pad SHALL be public (§8/§9, the table sees the score). The engine SHALL structure the state for filtering; performing the filtering is Match Runtime's responsibility ("Match Runtime" §3).
@@ -124,32 +71,3 @@ Folding `reduce` over an ordered event log from a given initial state SHALL be d
 
 - **WHEN** the lifecycle has computed the hand score and rests at `HandScoring`
 - **THEN** the per-side hand result (the scored lines and the made/set verdict) and the running score pad with cumulative-by-side totals are present in public state
-
-#### Scenario: The trick in progress is visible to the table
-
-- **WHEN** one or more cards have been played into the current trick during `TrickPlay`
-- **THEN** the in-progress trick (its led suit and ordered plays) is present in public state
-
-### Requirement: Trick-play loop
-
-During `TrickPlay`, `reduce` SHALL drive the trick loop per "Single-Deck Partners" §7. On entering `TrickPlay`, the bid winner (the recorded contract seat) SHALL be set to lead the first trick with an empty current trick. Each accepted `playCard` SHALL append the played card to the current trick, set the led suit on the first play, and pass the turn to the next seat in order. When the trick is complete (one play per seat), `reduce` SHALL resolve the winner via `TrickResolver`, credit that seat's captured counters (plus the `lastTrickBonus` when the hand is now complete), increment that seat's tricks-taken, record the resolved trick, and set the winner to lead the next trick. Counters and tricks SHALL be tallied per seat; folding seats into sides and applying the meld-needs-a-trick gate is deferred to `HandScoring`.
-
-#### Scenario: The bid winner leads the first trick
-
-- **WHEN** `TrickPlay` is entered for a hand
-- **THEN** the seat-to-act is the recorded contract (bid-winning) seat and the current trick is empty
-
-#### Scenario: The trick winner leads the next trick
-
-- **WHEN** a trick is resolved during `TrickPlay`
-- **THEN** the resolved trick's winner is credited its captured counters, its tricks-taken increases, and it becomes the seat-to-act for the next trick
-
-#### Scenario: The last trick awards the last-trick bonus
-
-- **WHEN** the final trick of the hand is resolved
-- **THEN** the winning seat's captured-counter tally includes the variant's `lastTrickBonus` in addition to that trick's counters
-
-#### Scenario: A full hand of tricks reconstructs deterministically
-
-- **WHEN** the same ordered `playCard` log for a hand is folded over `reduce` from the same post-melding state twice
-- **THEN** the two resulting states (capture tally, resolved tricks, and phase) are deep-equal

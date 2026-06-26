@@ -8,9 +8,10 @@ import { revealWidow } from '../widow/widow';
 import { declareTrump } from '../declare/declare';
 import { MeldDetector } from '../meld/meld';
 import { LegalPlayValidator, TrickResolver, capturedCounters } from '../play';
+import { HandScorer } from '../score/score';
 import { cardsIdentical, type Card } from '../domain/card';
-import { makeHand, makeTrick, type Hand, type Trick } from '../domain/entities';
-import type { SeatCapture, SeatMeld, State } from './state';
+import { appendHand, makeHand, makeTrick, type Hand, type Trick } from '../domain/entities';
+import { getContract, type SeatCapture, type SeatMeld, type State } from './state';
 import type { DealEvent, Event } from './events';
 
 /**
@@ -286,7 +287,12 @@ function applyPlayCard(state: State, event: PlayCardIntent): State {
  * record the resolved trick, start a fresh `currentTrick`, and set the winner to
  * lead next — or, when the hand is complete, advance to `HandScoring`.
  */
-function resolveCompletedTrick(state: State, trick: Trick, hands: readonly Hand[], trump: Suit): State {
+function resolveCompletedTrick(
+  state: State,
+  trick: Trick,
+  hands: readonly Hand[],
+  trump: Suit,
+): State {
   const winnerSeat = TrickResolver(trick, trump);
   const resolved = makeTrick(trick.ledSuit, trick.plays, winnerSeat);
   const handsEmpty = hands.every((hand) => hand.cards.length === 0);
@@ -304,11 +310,14 @@ function resolveCompletedTrick(state: State, trick: Trick, hands: readonly Hand[
   if (handsEmpty) {
     // The final trick is resolved: advance along the legal edge to `HandScoring`.
     const next = nextActivePhase(state.variant, 'TrickPlay');
-    return {
+    const advanced: State = {
       ...state,
       public: { ...publicBase, phase: next ?? state.public.phase, seatToAct: null },
       private: { ...state.private, hands },
     };
+    // `HandScoring` has no driving event (design D6): when it is the next active
+    // phase, compute the hand score deterministically and rest there.
+    return next === 'HandScoring' ? passThroughHandScoring(advanced) : advanced;
   }
   // The trick winner leads the next trick.
   return {
@@ -318,11 +327,39 @@ function resolveCompletedTrick(state: State, trick: Trick, hands: readonly Hand[
   };
 }
 
+/**
+ * Pass through the `HandScoring` phase deterministically (design D6): compute the
+ * {@link HandScorer} result from the recorded melds, the per-seat capture tally,
+ * the assembled {@link Contract}, and the variant, record it as `public.handResult`,
+ * and append its per-side lines to the running `public.scorePad`. `buriedCounters`
+ * is `0` on the Partners path (no Bury). `state` is the just-advanced state already
+ * resting at `HandScoring`; the lifecycle does *not* advance toward `Dealing` /
+ * `MatchComplete` (that branch is the `MatchScorer`'s).
+ */
+function passThroughHandScoring(state: State): State {
+  const contract = getContract(state);
+  if (contract === null) {
+    return state;
+  }
+  const result = HandScorer(state.public.melds, state.public.captured, contract, 0, state.variant);
+  return {
+    ...state,
+    public: {
+      ...state.public,
+      handResult: result,
+      scorePad: appendHand(state.public.scorePad, result.lines),
+    },
+  };
+}
+
 /** Return new hands with `card` removed from `seat`'s hand; other hands untouched. */
 function removeCard(hands: readonly Hand[], seat: number, card: Card): Hand[] {
   return hands.map((hand) =>
     hand.seatIndex === seat
-      ? makeHand(seat, hand.cards.filter((held) => !cardsIdentical(held, card)))
+      ? makeHand(
+          seat,
+          hand.cards.filter((held) => !cardsIdentical(held, card)),
+        )
       : hand,
   );
 }
