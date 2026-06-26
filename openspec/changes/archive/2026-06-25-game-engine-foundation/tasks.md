@@ -19,7 +19,7 @@
 - [x] 3.2 Implement `Deck` construction from a deck spec — pure/deterministic, no shuffle; 48-card single-deck produces 2×6 ranks ×4 suits
 - [x] 3.3 Define `Seat` with team-membership-or-none; derive seats+teams from a `VariantDefinition` (Partners→4 seats/2 opposite teams; Cutthroat→3 teamless seats)
 - [x] 3.4 Define `Hand`, `Bid`, `Contract`, `Meld { type, cards, value, class }`, `Trick`, and `ScorePad` as pure data types with thin constructors/helpers (no rules logic)
-- [x] 3.5 Import only the `VariantDefinition` *type* from `@meldrank/shared`; replace the `isTrump` placeholder; keep engine `package.json` free of runtime dependencies
+- [x] 3.5 Import only the `VariantDefinition` _type_ from `@meldrank/shared`; replace the `isTrump` placeholder; keep engine `package.json` free of runtime dependencies
 - [x] 3.6 Unit tests: card copy distinctness/value-equality; 48-card deck composition + determinism; seat/team derivation for both variants; entity constructors round-trip their fields
 
 ## 4. Hand-lifecycle state machine (`@meldrank/engine`)

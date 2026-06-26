@@ -1,4 +1,10 @@
-## ADDED Requirements
+# hand-state-container
+
+## Purpose
+
+Defines the pure `reduce(state, event): State` state container in `@meldrank/engine` and its serializable `State` shape, per "Match Runtime" §3/§4 and "Data Model" §5. It establishes the closed event union, phase-guarded application, transition-table-driven lifecycle advancement, deterministic replay, and the public/private separation that lets the Match Service derive per-seat views. This change wires only the `Dealing → Auction` slice.
+
+## Requirements
 
 ### Requirement: Pure reduce state container
 
@@ -16,7 +22,7 @@
 
 ### Requirement: Closed event union
 
-The engine SHALL define `Event` as a closed, typed union of the locked player intents (`bid`, `pass`, `declareTrump`, `playCard`, per "API Surface" §4) and the system events (`deal`, carrying the shuffle seed; `timeout`). Intent payload *types* SHALL be consumed from `@meldrank/shared` as types only; no Zod or runtime dependency enters the engine.
+The engine SHALL define `Event` as a closed, typed union of the locked player intents (`bid`, `pass`, `declareTrump`, `playCard`, per "API Surface" §4) and the system events (`deal`, carrying the shuffle seed; `timeout`). Intent payload _types_ SHALL be consumed from `@meldrank/shared` as types only; no Zod or runtime dependency enters the engine.
 
 #### Scenario: The event kinds are exactly the documented set
 

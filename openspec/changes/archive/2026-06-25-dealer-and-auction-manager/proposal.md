@@ -1,6 +1,6 @@
 ## Why
 
-The engine foundation (committed) gave us the domain model and a *structure-only* hand-lifecycle machine — states, a legal-transition table, and a variant-aware active-path resolver — but nothing that **drives** it. This change adds the first phase drivers, per the locked build order (engine → outward) and "Game Engine — Abstract Model" §5 (Dealer, AuctionManager). It establishes the pure `reduce(state, event)` contract that all three engine consumers (Match Service authority, client optimistic validation, bots) call into and that a replay is a deterministic fold over — the spine every later phase (DeclareTrump, Melding, TrickPlay, scoring) plugs into.
+The engine foundation (committed) gave us the domain model and a _structure-only_ hand-lifecycle machine — states, a legal-transition table, and a variant-aware active-path resolver — but nothing that **drives** it. This change adds the first phase drivers, per the locked build order (engine → outward) and "Game Engine — Abstract Model" §5 (Dealer, AuctionManager). It establishes the pure `reduce(state, event)` contract that all three engine consumers (Match Service authority, client optimistic validation, bots) call into and that a replay is a deterministic fold over — the spine every later phase (DeclareTrump, Melding, TrickPlay, scoring) plugs into.
 
 ## What Changes
 
@@ -13,16 +13,18 @@ The engine foundation (committed) gave us the domain model and a *structure-only
 ## Capabilities
 
 ### New Capabilities
+
 - `hand-state-container`: The pure `reduce(state, event)` engine driver — the serializable `State` value, the `Event` union (player intents + system events), event legality/phase-guarding, lifecycle advancement via the existing transition table, and the rejection contract. Wires the `Dealing → Auction` slice in this change.
 - `dealer`: The deterministic, seed-injected Dealer that slices a shuffled deck into per-seat hands plus the widow, owning the deal algorithm (Fisher–Yates over an injected `rng`) while leaving entropy/commit–reveal to Match Runtime. Enforces the deal-size invariant.
 - `auction-manager`: The auction phase module — bid/pass legality (to-act, live, floor), turn order from the dealer, and termination into a won `Bid` (incl. dealer-forced-at-minimum) or a `redeal` outcome — plus the Auction-phase deterministic timeout (pass).
 
 ### Modified Capabilities
+
 <!-- None. This change consumes (does not alter the requirements of) the foundation's game-domain-model and hand-lifecycle-state-machine capabilities. -->
 
 ## Impact
 
-- **Code:** `packages/engine/src` — new `state/` (the `reduce` container, `State`/`Event` types), `dealer/`, and `auction/` modules, exported from the engine root; consumes the existing `domain/` (Bid, Seat, Deck, Card) and `lifecycle/` (transition table, `resolveActivePath`) modules and the `VariantDefinition` *type* from `@meldrank/shared`. New Vitest suites in `@meldrank/engine`.
+- **Code:** `packages/engine/src` — new `state/` (the `reduce` container, `State`/`Event` types), `dealer/`, and `auction/` modules, exported from the engine root; consumes the existing `domain/` (Bid, Seat, Deck, Card) and `lifecycle/` (transition table, `resolveActivePath`) modules and the `VariantDefinition` _type_ from `@meldrank/shared`. New Vitest suites in `@meldrank/engine`.
 - **Dependencies:** none added — `@meldrank/engine` stays at zero runtime dependencies (invariant test continues to hold); shared-package imports remain type-only.
 - **Downstream:** establishes the `reduce`/`Event`/`State` contract that the next engine changes (DeclareTrump + WidowReveal/Passing/Bury, MeldDetector, LegalPlayValidator + TrickResolver, HandScorer + MatchScorer) extend rather than reshape; gives `apps/match` the authoritative apply function and `apps/web` the optimistic one, though neither app is wired in this change. The injected-`rng` boundary is the seam the Match Runtime provably-fair shuffle plugs into.
 - **Design source of truth:** Linear "Game Engine — Abstract Model" (§2/§5, Ruling 5), "Match Runtime — Design v1" (§3/§4/§8), "Anti-Cheat & Moderation — Design v1" (§2), "API Surface & Contracts — Design v1" (§4), "Data Model — Design v1" (§5), and both canonical ranked ruleset docs. No spec-level decisions are introduced here that those locked docs don't already establish.

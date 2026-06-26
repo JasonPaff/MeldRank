@@ -1,6 +1,6 @@
 ## 1. State container & event union (`@meldrank/engine`)
 
-- [x] 1.1 Add a `state/` module with the `Event` union: player intents `bid` / `pass` / `declareTrump` / `playCard` and system events `deal` (carrying the seed) / `timeout`; consume intent payload *types* from `@meldrank/shared` as type-only imports (no Zod, no runtime dep)
+- [x] 1.1 Add a `state/` module with the `Event` union: player intents `bid` / `pass` / `declareTrump` / `playCard` and system events `deal` (carrying the seed) / `timeout`; consume intent payload _types_ from `@meldrank/shared` as type-only imports (no Zod, no runtime dep)
 - [x] 1.2 Define the `State` type as a plain, JSON-round-trippable value with explicit public regions (phase marker, seat-to-act, auction standing, recorded winning `Bid`) and per-seat private regions (each seat's `Hand`, the unrevealed widow); represent the live-seat set as a serializable structure (ordered list / per-seat flags), not a `Set`
 - [x] 1.3 Implement `reduce(state, event): State` as a pure, non-mutating, deterministic function that phase-guards each event and returns the state unchanged (typed rejection, no throw on the hot path) when the event is illegal for the current phase
 - [x] 1.4 Wire lifecycle advancement through the foundation's transition table + `resolveActivePath` (skip variant-disabled bracketed phases); never advance along an illegal transition
