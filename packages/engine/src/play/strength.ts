@@ -24,6 +24,17 @@ const RANK_ORDINAL: Readonly<Record<Rank, number>> = {
   '9': 0,
 };
 
+/**
+ * The intrinsic rank value `A > 10 > K > Q > J > 9` (higher = stronger), the
+ * locked {@link RANK_ORDINAL} read out of trick context. Unlike {@link
+ * trickStrength}, it knows nothing of trump or the led suit — a `9` is the
+ * lowest value whether or not it is trump. `TimeoutMove` uses it to force the
+ * weakest legal card; exposing it here keeps the ordinal table single-sourced.
+ */
+export function rankValue(rank: Rank): number {
+  return RANK_ORDINAL[rank];
+}
+
 /** The strength tiers, spaced so a trump always outranks any led-suit card. */
 const TRUMP_TIER = 200;
 const LED_TIER = 100;

@@ -10,6 +10,7 @@ import { MeldDetector } from '../meld/meld';
 import { LegalPlayValidator, TrickResolver, capturedCounters } from '../play';
 import { HandScorer } from '../score/score';
 import { MatchScorer } from '../match/match';
+import { TimeoutMove } from '../timeout/timeout';
 import { cardsIdentical, type Card } from '../domain/card';
 import { appendHand, makeHand, makeTrick, type Hand, type Trick } from '../domain/entities';
 import {
@@ -31,9 +32,17 @@ import type { DealEvent, Event } from './events';
  * client, and the replay reconstructor all call this identical function, so they
  * cannot diverge.
  *
+ * The `timeout` system event is resolved uniformly up front through `TimeoutMove`
+ * (design D4): when it names the seat-to-act, `reduce` computes the deterministic
+ * forced intent (a `pass` where passing is legal, the lowest-value legal card in
+ * `TrickPlay`, `null` elsewhere) and re-enters with it, so the forced move passes
+ * the same guards a human move does; a timeout for any other seat, or in a phase
+ * with no forced move, leaves the state unchanged. This is the single place that
+ * resolves a timeout — no phase branch handles it inline.
+ *
  * This change drives the `Dealing → Auction → [WidowReveal] → DeclareTrump →
  * Melding → TrickPlay → HandScoring` slice (Partners): a `deal` populates the
- * hands and widow and opens the auction; `bid`/`pass`/`timeout` drive the auction
+ * hands and widow and opens the auction; `bid`/`pass` drive the auction
  * to a recorded `Bid` (and, for widow variants, a deterministic widow reveal)
  * resting at `DeclareTrump`, or a `redeal` outcome; a `declareTrump` from the
  * contract winner records the trump and computes each melding seat's meld through
@@ -50,6 +59,16 @@ import type { DealEvent, Event } from './events';
  * every event; `Bury` remains accepted by the type but rejected until implemented.
  */
 export function reduce(state: State, event: Event): State {
+  // Single resolution point for the `timeout` system event (design D4): when it
+  // names the seat-to-act, resolve the forced intent via `TimeoutMove` and re-enter
+  // `reduce` with it, so the forced move passes the identical phase/turn/legality
+  // guards a human move does. A timeout for any other seat — or a phase with no
+  // forced move (`TimeoutMove` returns `null`) — leaves the state unchanged. The
+  // forced intent is never itself a `timeout`, so this recurs at most one level.
+  if (event.type === 'timeout') {
+    const forced = event.seat === state.public.seatToAct ? TimeoutMove(state) : null;
+    return forced === null ? state : reduce(state, forced);
+  }
   switch (state.public.phase) {
     case 'Dealing':
       return event.type === 'deal' ? applyDeal(state, event) : state;
@@ -98,7 +117,11 @@ function applyDeal(state: State, event: DealEvent): State {
   };
 }
 
-/** Route an Auction-phase event to the auction module (a `timeout` resolves to a pass). */
+/**
+ * Route an Auction-phase event to the auction module. A `timeout` never reaches
+ * here — `reduce` resolves it to a forced `pass` up front (design D4) — so this
+ * sees only the real `bid`/`pass` intents.
+ */
 function applyAuctionEvent(state: State, event: Event): State {
   const auction = state.public.auction;
   if (auction === null) {
@@ -115,7 +138,6 @@ function applyAuctionEvent(state: State, event: Event): State {
     case 'bid':
       return applyAuctionStep(state, applyBid(auction, params, event.seat, event.value));
     case 'pass':
-    case 'timeout':
       return applyAuctionStep(state, applyPass(auction, params, dealerSeat, event.seat));
     default:
       return state;

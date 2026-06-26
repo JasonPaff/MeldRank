@@ -7,4 +7,4 @@
  */
 export { LegalPlayValidator } from './legal';
 export { TrickResolver, capturedCounters } from './resolve';
-export { trickStrength } from './strength';
+export { trickStrength, rankValue } from './strength';

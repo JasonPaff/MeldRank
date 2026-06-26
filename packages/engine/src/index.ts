@@ -50,3 +50,6 @@ export * from './score';
 
 /** The MatchScorer: the pure match-end evaluation, standings, and rating basis. */
 export * from './match';
+
+/** The TimeoutMove: the pure Ruling 5 forced-move policy for an expired move clock. */
+export * from './timeout';
