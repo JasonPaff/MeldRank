@@ -37,5 +37,5 @@ export function parseEnv<TSchema extends z.ZodType>(
     });
     throw new EnvValidationError(issues);
   }
-  return Object.freeze(result.data as z.infer<TSchema>);
+  return Object.freeze(result.data);
 }

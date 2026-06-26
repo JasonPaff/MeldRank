@@ -18,6 +18,20 @@ export default tseslint.config(
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  // Type-aware linting: promise-safety (no-floating-promises, no-misused-promises),
+  // `any`-leak containment (no-unsafe-*), and correctness rules that need the type
+  // checker. The value lands at the I/O boundaries (shared/server, apps) where wire
+  // intents, redis payloads, and async handlers live; the pure engine stays quiet.
+  ...tseslint.configs.recommendedTypeChecked,
+  {
+    languageOptions: {
+      parserOptions: {
+        // Auto-discovers the nearest tsconfig per file across the monorepo.
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
   {
     // TypeScript sources: enforce type-only imports and a clean import graph.
     files: ['**/*.{ts,tsx,mts,cts}'],
@@ -74,13 +88,26 @@ export default tseslint.config(
     },
   },
   {
-    // Vitest suites: catch focused/skipped tests and malformed assertions.
+    // Vitest suites: catch focused/skipped tests and malformed assertions. Tests
+    // routinely poke at `any`/`unknown` fixtures and malformed inputs on purpose,
+    // so the `no-unsafe-*` family is relaxed here to keep that intentional.
     files: ['**/*.test.{ts,tsx}'],
     ...vitest.configs.recommended,
     rules: {
       ...vitest.configs.recommended.rules,
       'vitest/no-focused-tests': 'error',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
     },
+  },
+  {
+    // Plain JS / config files (this file included) have no type information; turn
+    // off the type-aware rules so the parser never tries to project them.
+    files: ['**/*.{js,mjs,cjs,jsx}'],
+    extends: [tseslint.configs.disableTypeChecked],
   },
   prettier,
 );
