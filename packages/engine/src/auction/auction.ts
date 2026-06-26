@@ -90,8 +90,7 @@ export function applyBid(
   }
 
   const floor = auction.highBid ? auction.highBid.value + params.increment : params.minimumBid;
-  const onGrid =
-    value >= params.minimumBid && (value - params.minimumBid) % params.increment === 0;
+  const onGrid = value >= params.minimumBid && (value - params.minimumBid) % params.increment === 0;
   if (value < floor || !onGrid) {
     return { status: 'rejected' };
   }

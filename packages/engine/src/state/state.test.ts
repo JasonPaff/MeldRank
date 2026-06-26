@@ -38,11 +38,15 @@ describe('reduce — phase guard', () => {
     expect(next).toBe(state);
   });
 
-  it('rejects not-yet-driven later-phase events (declareTrump, playCard)', () => {
+  it('rejects events illegal for the current phase (declareTrump, playCard during Auction)', () => {
     const dealt = reduce(createInitialState(SINGLE_DECK_PARTNERS), { type: 'deal', seed: 1 });
     expect(reduce(dealt, { type: 'declareTrump', seat: 1, trump: 'spades' })).toBe(dealt);
     expect(
-      reduce(dealt, { type: 'playCard', seat: 1, card: { rank: 'A', suit: 'spades', copyIndex: 0 } }),
+      reduce(dealt, {
+        type: 'playCard',
+        seat: 1,
+        card: { rank: 'A', suit: 'spades', copyIndex: 0 },
+      }),
     ).toBe(dealt);
   });
 });

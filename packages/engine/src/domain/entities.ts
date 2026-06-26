@@ -64,7 +64,12 @@ export interface Meld {
 }
 
 /** Construct a {@link Meld}. */
-export function makeMeld(type: string, cards: readonly Card[], value: number, meldClass: MeldClass): Meld {
+export function makeMeld(
+  type: string,
+  cards: readonly Card[],
+  value: number,
+  meldClass: MeldClass,
+): Meld {
   return { type, cards, value, class: meldClass };
 }
 

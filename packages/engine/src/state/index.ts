@@ -5,7 +5,13 @@
  * slice in this change.
  */
 export { reduce } from './reduce';
-export { createInitialState, type State, type PublicState, type PrivateState } from './state';
+export {
+  createInitialState,
+  getContract,
+  type State,
+  type PublicState,
+  type PrivateState,
+} from './state';
 export {
   EVENT_KINDS,
   type Event,

@@ -57,12 +57,7 @@ export function deal(
   const deck = buildDeck(deckSpec);
   const dealtToHands = deck.length - widowSize;
 
-  if (
-    handSize <= 0 ||
-    widowSize < 0 ||
-    dealtToHands <= 0 ||
-    dealtToHands % handSize !== 0
-  ) {
+  if (handSize <= 0 || widowSize < 0 || dealtToHands <= 0 || dealtToHands % handSize !== 0) {
     throw new Error(
       `Invalid deal configuration: handSize=${handSize}, widowSize=${widowSize}, ` +
         `deckSize=${deck.length} do not satisfy handSize × playerCount + widowSize === deckSize`,

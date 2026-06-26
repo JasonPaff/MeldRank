@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { SINGLE_DECK_PARTNERS, SINGLE_DECK_CUTTHROAT, type VariantDefinition } from '@meldrank/shared';
+import {
+  SINGLE_DECK_PARTNERS,
+  SINGLE_DECK_CUTTHROAT,
+  type VariantDefinition,
+} from '@meldrank/shared';
 import { reduce, createInitialState, type Event } from './index';
 
 /** Fold an ordered event log over `reduce` from a fresh initial state. */
 function fold(variant: VariantDefinition, dealerSeat: number, log: readonly Event[]) {
-  return log.reduce((state, event) => reduce(state, event), createInitialState(variant, dealerSeat));
+  return log.reduce(
+    (state, event) => reduce(state, event),
+    createInitialState(variant, dealerSeat),
+  );
 }
 
 describe('Dealing → Auction integration', () => {
@@ -34,17 +41,41 @@ describe('Dealing → Auction integration', () => {
     expect(final.public.outcome).toBeNull();
   });
 
-  it('advances a concluded Cutthroat auction to WidowReveal (bracketed phase enabled)', () => {
+  it('folds a Partners hand through declareTrump to a recorded trump at Melding', () => {
+    const log: Event[] = [
+      { type: 'deal', seed: 2024 },
+      { type: 'bid', seat: 1, value: 250 },
+      { type: 'bid', seat: 2, value: 260 },
+      { type: 'pass', seat: 3 },
+      { type: 'pass', seat: 0 },
+      { type: 'pass', seat: 1 },
+      { type: 'declareTrump', seat: 2, trump: 'hearts' },
+    ];
+    const final = fold(SINGLE_DECK_PARTNERS, 0, log);
+
+    expect(final.public.contract).toEqual({ seatIndex: 2, value: 260 });
+    expect(final.public.trump).toBe('hearts');
+    expect(final.public.phase).toBe('Melding');
+  });
+
+  it('folds a Cutthroat hand through the widow reveal and declareTrump to Melding', () => {
+    const dealt = fold(SINGLE_DECK_CUTTHROAT, 0, [{ type: 'deal', seed: 99 }]);
     const log: Event[] = [
       { type: 'deal', seed: 99 },
       { type: 'bid', seat: 1, value: 300 },
       { type: 'pass', seat: 2 },
       { type: 'pass', seat: 0 },
+      { type: 'declareTrump', seat: 1, trump: 'clubs' },
     ];
     const final = fold(SINGLE_DECK_CUTTHROAT, 0, log);
 
     expect(final.public.contract).toEqual({ seatIndex: 1, value: 300 });
-    expect(final.public.phase).toBe('WidowReveal');
+    // The widow was revealed into the bidder's hand on the way to DeclareTrump.
+    expect(final.public.revealedWidow).toEqual(dealt.private.widow);
+    expect(final.private.hands[1]!.cards).toHaveLength(18);
+    expect(final.private.widow).toEqual([]);
+    expect(final.public.trump).toBe('clubs');
+    expect(final.public.phase).toBe('Melding');
   });
 
   it('surfaces a redeal outcome on a Cutthroat all-pass without advancing the phase', () => {
@@ -61,14 +92,28 @@ describe('Dealing → Auction integration', () => {
   });
 
   it('folds the same event log twice to deep-equal state (replay determinism)', () => {
-    const log: Event[] = [
+    const partners: Event[] = [
       { type: 'deal', seed: 31415 },
       { type: 'bid', seat: 1, value: 250 },
       { type: 'pass', seat: 2 },
       { type: 'pass', seat: 3 },
       { type: 'pass', seat: 0 },
+      { type: 'declareTrump', seat: 1, trump: 'spades' },
     ];
+    expect(fold(SINGLE_DECK_PARTNERS, 0, partners)).toEqual(
+      fold(SINGLE_DECK_PARTNERS, 0, partners),
+    );
 
-    expect(fold(SINGLE_DECK_PARTNERS, 0, log)).toEqual(fold(SINGLE_DECK_PARTNERS, 0, log));
+    // The Cutthroat fold runs through the deterministic widow reveal too.
+    const cutthroat: Event[] = [
+      { type: 'deal', seed: 27182 },
+      { type: 'bid', seat: 1, value: 300 },
+      { type: 'pass', seat: 2 },
+      { type: 'pass', seat: 0 },
+      { type: 'declareTrump', seat: 1, trump: 'diamonds' },
+    ];
+    expect(fold(SINGLE_DECK_CUTTHROAT, 0, cutthroat)).toEqual(
+      fold(SINGLE_DECK_CUTTHROAT, 0, cutthroat),
+    );
   });
 });

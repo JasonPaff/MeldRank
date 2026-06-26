@@ -22,7 +22,9 @@ const CUTTHROAT: AuctionParams = {
   allPassRule: 'redeal',
 };
 
-type Move = { readonly kind: 'bid'; readonly seat: number; readonly value: number } | { readonly kind: 'pass'; readonly seat: number };
+type Move =
+  | { readonly kind: 'bid'; readonly seat: number; readonly value: number }
+  | { readonly kind: 'pass'; readonly seat: number };
 
 /** Run a sequence of moves from an opening auction, returning the final step. */
 function run(

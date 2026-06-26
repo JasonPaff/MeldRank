@@ -1,6 +1,6 @@
-import type { VariantDefinition } from '@meldrank/shared';
+import type { Suit, VariantDefinition } from '@meldrank/shared';
 import type { LifecyclePhase } from '../lifecycle/phases';
-import type { Bid, Hand } from '../domain/entities';
+import { makeContract, type Bid, type Contract, type Hand } from '../domain/entities';
 import type { Card } from '../domain/card';
 import type { AuctionState } from '../auction/auction';
 
@@ -27,6 +27,13 @@ export interface PublicState {
   readonly auction: AuctionState | null;
   /** The recorded winning bid once the auction concludes, else `null`. */
   readonly contract: Bid | null;
+  /** The trump suit once the bid winner declares it, else `null` (design D1). */
+  readonly trump: Suit | null;
+  /**
+   * The widow once it is revealed to the table (widow variants), else empty. The
+   * canonical widow is `exposed`, so the reveal is recorded publicly (design D2).
+   */
+  readonly revealedWidow: readonly Card[];
   /** A `redeal` signal for the room to re-deal (Cutthroat all-pass), else `null`. */
   readonly outcome: 'redeal' | null;
 }
@@ -64,8 +71,24 @@ export function createInitialState(variant: VariantDefinition, dealerSeat = 0): 
       seatToAct: null,
       auction: null,
       contract: null,
+      trump: null,
+      revealedWidow: [],
       outcome: null,
     },
     private: { hands: [], widow: [] },
   };
+}
+
+/**
+ * The domain `Contract` assembled from the split public state (design D1): the
+ * recorded winning `Bid` (`seatIndex`, `value`) plus the declared `trump`.
+ * Returns `null` until both are present, so a consumer (MeldDetector, scorers)
+ * never reads a half-formed contract.
+ */
+export function getContract(state: State): Contract | null {
+  const { contract, trump } = state.public;
+  if (contract === null || trump === null) {
+    return null;
+  }
+  return makeContract(contract.seatIndex, contract.value, trump);
 }

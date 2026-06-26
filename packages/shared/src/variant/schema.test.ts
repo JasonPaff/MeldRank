@@ -16,15 +16,33 @@ function makeValidVariant(): unknown {
   return {
     id: 'test-variant',
     name: 'Test Variant',
-    deck: { ranks: ['A', '10', 'K', 'Q', 'J', '9'], suits: ['spades', 'hearts', 'clubs', 'diamonds'], copiesPerCard: 2 },
-    seating: { playerCount: 4, teams: { mode: 'partnerships', partnerships: [[0, 2], [1, 3]] } },
+    deck: {
+      ranks: ['A', '10', 'K', 'Q', 'J', '9'],
+      suits: ['spades', 'hearts', 'clubs', 'diamonds'],
+      copiesPerCard: 2,
+    },
+    seating: {
+      playerCount: 4,
+      teams: {
+        mode: 'partnerships',
+        partnerships: [
+          [0, 2],
+          [1, 3],
+        ],
+      },
+    },
     dealing: {
       handSize: 12,
       widow: { size: 2, visibility: 'exposed' },
       bury: { size: 2, restrictions: ['no-trump'] },
     },
     passing: { count: 4, passBack: true },
-    bidding: { minimumBid: 200, increment: 10, passBehavior: 'pass-out-for-hand', allPassRule: 'redeal' },
+    bidding: {
+      minimumBid: 200,
+      increment: 10,
+      passBehavior: 'pass-out-for-hand',
+      allPassRule: 'redeal',
+    },
     trumpDeclaredBy: 'bid-winner',
     melding: { whoMelds: 'all-seats', meldTableId: 'standard-single-deck' },
     trick: {

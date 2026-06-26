@@ -6,11 +6,12 @@
  * `VariantDefinition` *type* from `@meldrank/shared` (erased at build), never
  * Zod or any runtime import.
  *
- * On the foundation's domain model and hand-lifecycle structure this change adds
- * the first phase drivers — the pure `reduce(state, event)` state container, the
- * Dealer, and the AuctionManager — wiring the `Dealing → Auction` slice. The
- * remaining phase logic (DeclareTrump, MeldDetector, TrickResolver, scorers)
- * arrives in later changes.
+ * On the foundation's domain model and hand-lifecycle structure the phase
+ * drivers — the pure `reduce(state, event)` state container, the Dealer, the
+ * AuctionManager, the deterministic WidowReveal transition, and the DeclareTrump
+ * driver — wire the `Dealing → Auction → [WidowReveal] → DeclareTrump → (ready
+ * for Melding)` slice. The remaining phase logic (MeldDetector, TrickResolver,
+ * scorers) arrives in later changes.
  */
 
 export const ENGINE_VERSION = '0.0.0';
@@ -29,3 +30,9 @@ export * from './dealer';
 
 /** The AuctionManager: bid/pass legality, turn order, and termination outcomes. */
 export * from './auction';
+
+/** The WidowReveal transition: the deterministic widow reveal for widow variants. */
+export * from './widow';
+
+/** The DeclareTrump phase driver: `declareTrump` legality and the recorded trump. */
+export * from './declare';

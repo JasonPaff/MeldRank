@@ -48,7 +48,13 @@ export const SINGLE_DECK_PARTNERS: Readonly<VariantDefinition> = deepFreeze(
     deck: { ranks: SINGLE_DECK_RANKS, suits: ALL_SUITS, copiesPerCard: 2 },
     seating: {
       playerCount: 4,
-      teams: { mode: 'partnerships', partnerships: [[0, 2], [1, 3]] },
+      teams: {
+        mode: 'partnerships',
+        partnerships: [
+          [0, 2],
+          [1, 3],
+        ],
+      },
     },
     dealing: {
       handSize: 12,

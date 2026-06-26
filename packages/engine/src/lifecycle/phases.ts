@@ -35,7 +35,11 @@ export const LIFECYCLE_PHASES: readonly LifecyclePhase[] = [
 ] as const;
 
 /** The optional, variant-gated phases (the bracketed states in §2). */
-export const OPTIONAL_PHASES: readonly LifecyclePhase[] = ['WidowReveal', 'Passing', 'Bury'] as const;
+export const OPTIONAL_PHASES: readonly LifecyclePhase[] = [
+  'WidowReveal',
+  'Passing',
+  'Bury',
+] as const;
 
 /**
  * The full legal-transition table for the §2 machine, including every bracketed

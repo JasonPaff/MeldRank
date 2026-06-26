@@ -22,7 +22,13 @@ describe('canonical variant fixtures', () => {
 
     it('seats 4 players in two opposite partnerships', () => {
       expect(v.seating.playerCount).toBe(4);
-      expect(v.seating.teams).toEqual({ mode: 'partnerships', partnerships: [[0, 2], [1, 3]] });
+      expect(v.seating.teams).toEqual({
+        mode: 'partnerships',
+        partnerships: [
+          [0, 2],
+          [1, 3],
+        ],
+      });
     });
 
     it('deals hand size 12 with no widow, bury, or passing', () => {
@@ -85,7 +91,10 @@ describe('canonical variant fixtures', () => {
     it('deals hand size 15 with a 3-card exposed widow and restricted 3-card bury', () => {
       expect(v.dealing.handSize).toBe(15);
       expect(v.dealing.widow).toEqual({ size: 3, visibility: 'exposed' });
-      expect(v.dealing.bury).toEqual({ size: 3, restrictions: ['no-melded', 'no-trump', 'no-dix'] });
+      expect(v.dealing.bury).toEqual({
+        size: 3,
+        restrictions: ['no-melded', 'no-trump', 'no-dix'],
+      });
       expect(v.passing.count).toBe(0);
     });
 

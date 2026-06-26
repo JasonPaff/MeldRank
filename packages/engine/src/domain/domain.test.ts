@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SINGLE_DECK_PARTNERS, SINGLE_DECK_CUTTHROAT } from '@meldrank/shared';
-import {
-  makeCard,
-  cardsValueEqual,
-  cardsIdentical,
-  cardValueKey,
-  cardIdentityKey,
-} from './card';
+import { makeCard, cardsValueEqual, cardsIdentical, cardValueKey, cardIdentityKey } from './card';
 import { buildDeck, buildDeckForVariant, deckSpecFromVariant } from './deck';
 import { deriveSeats } from './seat';
 import {
