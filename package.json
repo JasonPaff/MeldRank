@@ -8,18 +8,18 @@
   },
   "scripts": {
     "build": "turbo run build",
-    "typecheck": "turbo run typecheck && pnpm typecheck:scripts",
-    "typecheck:scripts": "tsc -p tsconfig.json",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio",
+    "dev": "turbo run dev",
+    "env:check": "tsx scripts/check-env-example.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "lint": "turbo run lint",
     "lint:fix": "turbo run lint -- --fix",
     "test": "turbo run test",
-    "dev": "turbo run dev",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "env:check": "tsx scripts/check-env-example.ts",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "typecheck": "turbo run typecheck && pnpm typecheck:scripts",
+    "typecheck:scripts": "tsc -p tsconfig.json"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
