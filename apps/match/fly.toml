@@ -1,6 +1,11 @@
 # Fly.io deploy descriptor for the Match Service (Colyseus, realtime WebSocket).
 # App name and region are placeholders the operator sets at provisioning time
 # (see infra/README.md). Secrets are supplied via `fly secrets`, never here.
+#
+# Runtime shape: this service hosts authoritative game rooms entirely in memory
+# (one engine instance per room). A stopped machine drops every live room, so
+# machines are NOT auto-stopped here. Multi-machine sticky routing and graceful
+# drain are deploy hardening deferred to a later slice.
 app = "meldrank-match"
 primary_region = "ord"
 
@@ -14,7 +19,8 @@ primary_region = "ord"
 [http_service]
   internal_port = 2567
   force_https = true
-  auto_stop_machines = "stop"
+  # Keep room-hosting machines alive; do not stop them out from under live rooms.
+  auto_stop_machines = "off"
   auto_start_machines = true
   min_machines_running = 1
 

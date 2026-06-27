@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1
-# Multi-stage production image for the Match Service (Colyseus) on Node 22.
+# Multi-stage production image for the Match Service (Colyseus room server) on
+# Node 22. The container runs the service entry, which registers the authoritative
+# `match` room type and listens for realtime WebSocket connections on PORT (2567).
 #
 # Build context is the REPO ROOT so the whole pnpm workspace is available.
 # Deploy from the repository root with:
