@@ -1,6 +1,6 @@
 import type { FilteredView, State } from '@meldrank/engine';
 import type { SeatContribution } from '@meldrank/fairness';
-import type { PlayerIntent, VariantDefinition } from '@meldrank/shared';
+import type { PlayerIntent, ReplayBlobV1, VariantDefinition } from '@meldrank/shared';
 
 /**
  * The pure `RoomCore` data model (design D2). Every type here is a plain,
@@ -15,9 +15,10 @@ import type { PlayerIntent, VariantDefinition } from '@meldrank/shared';
  * The room lifecycle marker, advancing only along the ordered path
  * `Reserved → Filling → Live → Complete → Persisted → Disposed`
  * (spec: match-room-lifecycle). `Reserved` is created-but-unseated; `Filling`
- * accepts joins; `Live` runs the per-hand loop; `Complete` is the finished match;
- * `Persisted` is an **inert** placeholder transition in this slice (no durable
- * write — real persistence is slice #6); `Disposed` is the torn-down room.
+ * accepts joins; `Live` runs the per-hand loop; `Complete` is the finished match
+ * (which emits a `persist` effect carrying the assembled record); `Persisted` means
+ * the match is **durably written** — reached only after the adapter confirms the
+ * Neon write; `Disposed` is the torn-down room.
  */
 export type RoomLifecycle = 'Reserved' | 'Filling' | 'Live' | 'Complete' | 'Persisted' | 'Disposed';
 
@@ -155,6 +156,124 @@ export interface ResolutionState {
 }
 
 /**
+ * The durable per-seat outcome normalized to the `participant_outcome` vocabulary
+ * (design D3): the room's richer abandonment labels and the engine's played-out
+ * win/loss both collapse into `win`/`loss`/`no_result` for the persisted record and
+ * the result event.
+ */
+export type MatchOutcomeLabel = 'win' | 'loss' | 'no_result';
+
+/** A single seat's normalized match outcome, carried in the assembled record. */
+export interface MatchOutcome {
+  readonly seat: number;
+  readonly outcome: MatchOutcomeLabel;
+}
+
+/**
+ * Why a match resolved, as written to `matches.resolution_reason` (design D3): the
+ * room's {@link ResolutionReason} for an abandonment, plus `played_out` for a
+ * naturally scored-out match.
+ */
+export type MatchResolutionReason = ResolutionReason | 'played_out';
+
+/**
+ * One side's as-scored line for a hand (design D1): the plain projector-input line
+ * the writer feeds straight to `projectHand()` with no engine-type coupling.
+ */
+export interface HandRecordLine {
+  readonly side: number;
+  readonly meld: number;
+  readonly counters: number;
+  readonly total: number;
+}
+
+/**
+ * A per-hand summary harvested at the scoring boundary (design D1). Mirrors
+ * `ProjectHandInput` exactly so the writer hands it straight to `projectHand()`: the
+ * bidding context, the made/set verdict, the per-side as-scored `lines`, and the
+ * cumulative-by-side totals after the hand. A plain, serializable value object.
+ */
+export interface HandRecord {
+  readonly handNumber: number;
+  readonly bidderSeat: number;
+  readonly contractValue: number;
+  readonly trump: string;
+  readonly made: boolean;
+  readonly lines: readonly HandRecordLine[];
+  readonly cumulativeBySide: Readonly<Record<number, number>>;
+}
+
+/**
+ * One entry in the ordered intent log (design D1, replay-only): the acting seat and
+ * either the accepted player `intent` or a forced-timeout marker
+ * (`forcedTimeout: true`, `intent: null`). Appended in occurrence order.
+ */
+export interface IntentLogEntry {
+  readonly seat: number;
+  readonly intent: PlayerIntent | null;
+  readonly forcedTimeout: boolean;
+}
+
+/**
+ * A hand's captured seed reveal (design D1, replay-only): the per-hand nonce, the
+ * (now safe to retain) server seed, its published commitment, and the seat
+ * contributions that fed the deal. Captured before the handshake is cleared; it only
+ * ever surfaces inside the durable replay blob written at match end.
+ */
+export interface HandReveal {
+  readonly handNonce: number;
+  readonly serverSeed: Uint8Array;
+  readonly commit: Uint8Array;
+  readonly contributions: readonly SeatContribution[];
+}
+
+/**
+ * The in-memory match-record accumulator (design D1): the data the engine and the
+ * shuffle handshake discard as the match advances, captured into the room's own
+ * state as it occurs so the full record exists when the match ends. `startedAt` is
+ * the injected-clock instant the room went `Live`; `hands` is one plain
+ * projector-input per scored hand; `intents` and `reveals` are replay-only.
+ */
+export interface MatchRecordAccumulator {
+  readonly startedAt: number | null;
+  readonly hands: readonly HandRecord[];
+  readonly intents: readonly IntentLogEntry[];
+  readonly reveals: readonly HandReveal[];
+}
+
+/**
+ * The self-describing match envelope (design D2/D4): the `matches`-row fields derived
+ * in the pure core so the writer is dumb. `variantSnapshot` is the full definition
+ * and `variantHash` its stable content hash; `variantId`/`variantVersion` stay null
+ * for ad-hoc casual. `startedAt`/`completedAt` are injected-clock epoch ms.
+ */
+export interface MatchRecordEnvelope {
+  readonly mode: 'ranked' | 'casual';
+  readonly status: 'complete' | 'aborted';
+  readonly resolutionReason: MatchResolutionReason;
+  readonly variantId: string | null;
+  readonly variantVersion: number | null;
+  readonly variantSnapshot: VariantDefinition;
+  readonly variantHash: string;
+  readonly startedAt: number | null;
+  readonly completedAt: number;
+}
+
+/**
+ * The fully-assembled, DB-id-free match record (design D2) carried on the `persist`
+ * effect: the envelope, the per-hand `HandRecord`s (the writer folds each through
+ * `projectHand()`), the per-seat normalized outcomes (for the result event), and the
+ * versioned replay blob (the writer serializes it to `bytea`). The adapter performs
+ * the IO and supplies the generated match id.
+ */
+export interface MatchRecord {
+  readonly match: MatchRecordEnvelope;
+  readonly hands: readonly HandRecord[];
+  readonly outcomes: readonly MatchOutcome[];
+  readonly replay: ReplayBlobV1;
+}
+
+/**
  * The per-hand provably-fair handshake context (spec: match-shuffle-handshake).
  * Created when a hand's deal window opens: it carries the secret `serverSeed`
  * (committed but **never** broadcast), the published `commit` hash, the hand's
@@ -205,10 +324,17 @@ export interface RoomCoreState {
   /**
    * The terminal abandonment resolution (design D9; capability
    * `match-disconnect-abandonment`), or `null` while the match is unresolved. Set by
-   * the forfeit/abort functions and carried through the `Complete → Persisted`
-   * run-out for a downstream persistence slice; a resolved room accepts no intents.
+   * the forfeit/abort functions and read at completion to derive the persisted
+   * record's status/reason/outcomes; a resolved room accepts no intents.
    */
   readonly resolution: ResolutionState | null;
+  /**
+   * The in-memory match-record accumulator (design D1; capability
+   * `match-persistence`): per-hand summaries, the ordered intent log, and seed
+   * reveals captured while `Live`, plus the `startedAt` stamp. Read at completion to
+   * assemble the `MatchRecord` carried on the `persist` effect.
+   */
+  readonly record: MatchRecordAccumulator;
 }
 
 /**
@@ -238,9 +364,10 @@ export type JoinRejectReason = 'disposed' | 'room-full' | 'seat-occupied' | 'alr
  * exceptions are the **server-side signals** identifying a seat or carrying a
  * resolution rather than a per-connection payload — `abandonmentSignal` (design
  * D7), `abandonResolution` (the terminal result, design D5/D9), `abandonEvent` (the
- * leaver-penalty hook), and `botTakeoverRequested` (the stubbed casual seating
- * contract, design D8) — forwarded by the adapter to their stubbed consumers
- * (slices #5/#6 and the Anti-Cheat doc) rather than to a client.
+ * leaver-penalty hook), `botTakeoverRequested` (the stubbed casual seating
+ * contract, design D8), and `persist` (the assembled match record the adapter writes
+ * to Neon, capability `match-persistence`) — forwarded by the adapter to their
+ * consumers rather than to a client.
  */
 export type Effect =
   | { readonly kind: 'view'; readonly connectionId: string; readonly view: FilteredView }
@@ -267,7 +394,8 @@ export type Effect =
   | { readonly kind: 'abandonmentSignal'; readonly seat: number; readonly timeoutCount: number }
   | { readonly kind: 'abandonResolution'; readonly reason: ResolutionReason; readonly outcomes: readonly SeatOutcome[] }
   | { readonly kind: 'abandonEvent'; readonly seat: number; readonly reason: ResolutionReason }
-  | { readonly kind: 'botTakeoverRequested'; readonly seat: number };
+  | { readonly kind: 'botTakeoverRequested'; readonly seat: number }
+  | { readonly kind: 'persist'; readonly record: MatchRecord };
 
 /** The result of any `RoomCore` step: the next state plus the effects to emit. */
 export interface StepResult {

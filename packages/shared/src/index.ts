@@ -29,6 +29,13 @@ export * from './variant';
  */
 export * from './intent';
 
+/**
+ * Match-record contracts: the durable {@link ReplayBlobV1} the match runtime writes
+ * to `match_replays`, and the status-only {@link MatchResultEvent} it publishes over
+ * Redis — the API↔Match wire contract.
+ */
+export * from './match';
+
 /** Health-check record schema, used by the app services' liveness endpoints. */
 export const HealthSchema = z.object({
   service: z.string(),

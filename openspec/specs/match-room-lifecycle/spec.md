@@ -24,7 +24,7 @@ The Match Service SHALL host exactly one authoritative `@meldrank/engine` `State
 
 ### Requirement: Room lifecycle state machine
 
-The room SHALL progress through the states `Reserved → Filling → Live → Complete → Persisted → Disposed`, advancing only along that ordered path. `Reserved` is the created-but-unseated room; `Filling` accepts seat joins until the variant's seat count is reached; `Live` runs the per-hand loop; `Complete` is entered when the engine reports the match complete **or** when an abandonment resolution (forfeit or abort, capability `match-disconnect-abandonment`) terminates the match early, in which case the room carries the resolution reason and per-seat outcomes through the run-out; `Persisted` is a placeholder transition that performs no durable write in this slice; `Disposed` tears the room down. Illegal state transitions SHALL be rejected.
+The room SHALL progress through the states `Reserved → Filling → Live → Complete → Persisted → Disposed`, advancing only along that ordered path. `Reserved` is the created-but-unseated room; `Filling` accepts seat joins until the variant's seat count is reached; `Live` runs the per-hand loop; `Complete` is entered when the engine reports the match complete **or** when an abandonment resolution (forfeit or abort, capability `match-disconnect-abandonment`) terminates the match early, in which case the room carries the resolution reason and per-seat outcomes through the run-out. On entering `Complete` the room SHALL emit a `persist` effect carrying the assembled match record (capability `match-persistence`) and SHALL NOT itself advance to `Persisted`. `Persisted` SHALL be entered only after the durable write of the completed match has confirmed, driven by the adapter; `Disposed` tears the room down and SHALL be reached only from `Persisted` after a completed match (or from a pre-live room). Illegal state transitions SHALL be rejected.
 
 #### Scenario: Room fills then goes live
 
@@ -32,17 +32,17 @@ The room SHALL progress through the states `Reserved → Filling → Live → Co
 - **THEN** the room enters `Filling`
 - **AND** once the seat count required by the variant is reached, the room enters `Live` and begins the first hand
 
-#### Scenario: Match completion advances toward disposal
+#### Scenario: Match completion emits persist and awaits the durable write
 
 - **WHEN** the engine reports the match complete during the per-hand loop
-- **THEN** the room enters `Complete`, then `Persisted`, then `Disposed`
-- **AND** the `Persisted` transition writes nothing durable in this slice
+- **THEN** the room enters `Complete` and emits a `persist` effect carrying the assembled match record
+- **AND** the room advances to `Persisted` only after the durable write confirms, then to `Disposed`
 
-#### Scenario: Abandonment resolution advances toward disposal
+#### Scenario: Abandonment resolution emits persist and awaits the durable write
 
 - **WHEN** an abandonment resolution (forfeit or abort) terminates a `Live` match
-- **THEN** the room enters `Complete`, then `Persisted`, then `Disposed`
-- **AND** carries the resolution reason and per-seat outcomes through the run-out
+- **THEN** the room enters `Complete`, carries the resolution reason and per-seat outcomes, and emits a `persist` effect carrying the assembled record
+- **AND** the room advances to `Persisted` only after the durable write confirms, then to `Disposed`
 
 #### Scenario: Out-of-order transition is rejected
 

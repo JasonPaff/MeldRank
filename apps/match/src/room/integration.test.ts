@@ -1,15 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { SINGLE_DECK_PARTNERS, type VariantDefinition } from '@meldrank/shared';
 import { LegalPlayValidator, type State } from '@meldrank/engine';
-import { createRoomCore, disposeRoom, expireClock, joinRoom, submitContribution, submitIntent } from './core';
+import { createRoomCore, disposeRoom, expireClock, joinRoom, markPersisted, submitContribution, submitIntent } from './core';
 import { DEFAULT_CLOCK_CONFIG } from './clock';
 import type { Clock, Effect, PlayerIntent, RoomCoreState, ServerSeedSource, StepResult } from './types';
 
 /**
  * End-to-end: boot `RoomCore` in-process, fill the seats, run the provably-fair
  * handshake, and play a full hand to `HandScoring` over the authoritative intent
- * loop — asserting no hidden information leaks into any seat's view (task 6.1), and
- * that `Persisted` is an inert transition (task 6.2).
+ * loop — asserting no hidden information leaks into any seat's view, and that a
+ * completed match rests at `Complete` emitting a `persist` effect (capability
+ * `match-persistence`), reaching `Persisted` only via `markPersisted`.
  */
 
 function fixedSeeder(start = 1): ServerSeedSource {
@@ -229,11 +230,13 @@ describe('clock expiry → engine timeout policy', () => {
     expect(signal!.seat).toBe(actor);
     expect(signal!.timeoutCount).toBe(1);
     // The signal now drives a timeout_abandon forfeit (the seat is treated as a leaver,
-    // not granted another forced move): the match resolves and runs out to Persisted.
+    // not granted another forced move): the match resolves, rests at Complete, and emits
+    // the persist effect carrying the assembled record.
     expect(result.state.resolution!.reason).toBe('timeout_abandon');
     expect(result.state.resolution!.outcomes.find((o) => o.seat === actor)!.outcome).toBe('abandoner_loss');
     expect(result.effects.some((e) => e.kind === 'abandonEvent')).toBe(true);
-    expect(result.state.lifecycle).toBe('Persisted');
+    expect(result.effects.some((e) => e.kind === 'persist')).toBe(true);
+    expect(result.state.lifecycle).toBe('Complete');
   });
 
   it('does not emit the signal below the ranked threshold', () => {
@@ -293,24 +296,30 @@ describe('match room — end to end', () => {
     expect(after.handshake).not.toBeNull();
   });
 
-  it('completes the match, runs through the inert Persisted transition, then disposes', () => {
+  it('completes the match, emits a persist effect, then advances and disposes', () => {
     // A target-score of 1 guarantees the match ends after the first hand.
     const variant: VariantDefinition = { ...SINGLE_DECK_PARTNERS, matchEnd: { mode: 'target-score', target: 1 } };
     const seed = fixedSeeder();
     const { state } = bootAndDeal(variant, seed);
     const { state: after, last } = playOneHand(state, seed, variant);
 
-    // Live → Complete → Persisted. Persisted is inert: it writes nothing durable
-    // (the room module imports no database), and the engine state is retained until
-    // disposal so the final broadcast views stay valid.
-    expect(after.lifecycle).toBe('Persisted');
+    // Live → Complete: the room rests at Complete and emits exactly one persist effect
+    // carrying the assembled record. It does NOT advance to Persisted itself — that is
+    // the adapter's job after the durable write. The engine state is retained so the
+    // final broadcast views stay valid.
+    expect(after.lifecycle).toBe('Complete');
+    const persists = last.effects.filter((e) => e.kind === 'persist');
+    expect(persists).toHaveLength(1);
     expect(after.engine).not.toBeNull();
     expect(after.engine!.public.matchResult?.complete).toBe(true);
     const finalView = last.effects.map((e) => ('view' in e ? e.view : undefined)).find((v) => v?.public.matchResult != null);
     expect(finalView).toBeDefined();
 
-    // Disposal releases the engine and is the only step that tears the room down.
-    const disposed = disposeRoom(after).state;
+    // The adapter confirms the write, marks the room Persisted, then disposes — the only
+    // step that releases the engine and tears the room down.
+    const persisted = markPersisted(after).state;
+    expect(persisted.lifecycle).toBe('Persisted');
+    const disposed = disposeRoom(persisted).state;
     expect(disposed.lifecycle).toBe('Disposed');
     expect(disposed.engine).toBeNull();
   });

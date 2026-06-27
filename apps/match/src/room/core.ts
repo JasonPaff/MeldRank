@@ -1,6 +1,6 @@
 import { createInitialState, reduce, viewFor, type FilteredView, type State, type TimeoutEvent } from '@meldrank/engine';
-import type { SeatContribution } from '@meldrank/fairness';
-import type { VariantDefinition } from '@meldrank/shared';
+import { toHex, type SeatContribution } from '@meldrank/fairness';
+import { hashVariant, REPLAY_FORMAT, REPLAY_SCHEMA_VERSION, type ReplayBlobV1, type VariantDefinition } from '@meldrank/shared';
 import { advanceLifecycle } from './lifecycle';
 import { isFull, lowestFreeSeat, isSeatOccupied, seatForConnection, withSeat } from './seating';
 import { assembleAndDeal, openHand } from './handshake';
@@ -9,14 +9,20 @@ import type {
   Clock,
   ClockConfig,
   Effect,
+  HandRecord,
+  IntentLogEntry,
   IntentRejectReason,
   JoinResult,
+  MatchOutcome,
+  MatchOutcomeLabel,
+  MatchRecord,
   PendingDeadline,
   PlayerIntent,
   ResolutionReason,
   RoomCoreState,
   SeatClockSnapshot,
   SeatOutcome,
+  SeatOutcomeLabel,
   ServerSeedSource,
   StepResult,
 } from './types';
@@ -60,6 +66,7 @@ export function createRoomCore(variant: VariantDefinition, options: CreateRoomOp
     turnStartedAt: null,
     contributionDeadline: null,
     resolution: null,
+    record: { startedAt: null, hands: [], intents: [], reveals: [] },
   };
 }
 
@@ -191,8 +198,18 @@ function applyAdvanceBroadcast(
   let next: RoomCoreState = { ...state, engine: advanced, turnStartedAt: null };
   const effects: Effect[] = [...baseEffects];
 
+  // Harvest the per-hand record at the scoring boundary (design D1), before the next
+  // hand resets the engine. `advanced` is immutable, so this reads the just-scored
+  // hand's `handResult` / `contract` / `trump` / `scorePad` whether the match ends or
+  // continues.
+  if (advanced.public.phase === 'HandScoring' || advanced.public.phase === 'MatchComplete') {
+    next = { ...next, record: { ...next.record, hands: [...next.record.hands, harvestHand(advanced)] } };
+  }
+
   if (advanced.public.phase === 'MatchComplete') {
-    next = completeAndPersist(next);
+    const completed = completeMatch(next, now);
+    next = completed.state;
+    effects.push(...completed.effects);
   } else if (advanced.public.phase === 'HandScoring') {
     // Hand finished, match continues: open the next hand's commit window.
     const began = beginHand(next, seed, now);
@@ -207,14 +224,52 @@ function applyAdvanceBroadcast(
 }
 
 /**
+ * Extract a plain {@link HandRecord} from the engine state resting at the scoring
+ * boundary (design D1): the bidding context from `contract`, the made/set verdict and
+ * per-side lines from `handResult`, the running cumulative-by-side from `scorePad`,
+ * and the 1-based hand number from the scorepad's hand count. The shape mirrors
+ * `ProjectHandInput`, so the writer feeds it straight to `projectHand()`.
+ */
+function harvestHand(engine: State): HandRecord {
+  const pub = engine.public;
+  const contract = pub.contract!;
+  const result = pub.handResult!;
+  return {
+    handNumber: pub.scorePad.hands.length,
+    bidderSeat: contract.seatIndex,
+    contractValue: contract.value,
+    trump: pub.trump!,
+    made: result.made,
+    lines: result.lines.map((line) => ({ side: line.side, meld: line.meld, counters: line.counters, total: line.total })),
+    cumulativeBySide: { ...pub.scorePad.cumulative },
+  };
+}
+
+/**
  * Close the contribution window and deal (design D5): assemble the seed over the
  * committed server seed and the collected contributions (deterministic fallback for
  * absent seats), clear the handshake and its deadline, stamp the first seat's turn,
  * and broadcast each seat's dealt view plus the opening clock state.
  */
 function dealAndBroadcast(state: RoomCoreState, now: number): StepResult {
-  const dealt = assembleAndDeal(state.engine!, state.handshake!, state.seatCount);
-  let afterDeal: RoomCoreState = { ...state, engine: dealt, handshake: null, contributionDeadline: null };
+  const handshake = state.handshake!;
+  const dealt = assembleAndDeal(state.engine!, handshake, state.seatCount);
+  // Capture this hand's seed reveal before the handshake is discarded (design D1):
+  // the nonce, server seed, commitment, and seat contributions that determined the
+  // deal. Replay-only — it surfaces only inside the durable blob written at match end.
+  const reveal = {
+    handNonce: handshake.handNonce,
+    serverSeed: handshake.serverSeed,
+    commit: handshake.commit,
+    contributions: handshake.contributions.map((c) => ({ seat: c.seat, clientSeed: c.clientSeed })),
+  };
+  let afterDeal: RoomCoreState = {
+    ...state,
+    engine: dealt,
+    handshake: null,
+    contributionDeadline: null,
+    record: { ...state.record, reveals: [...state.record.reveals, reveal] },
+  };
   afterDeal = stampTurn(afterDeal, now);
   const effects: Effect[] = [...broadcastViews(afterDeal, dealt), ...clockStateEffects(afterDeal)];
   return { state: afterDeal, effects };
@@ -267,8 +322,15 @@ export function joinRoom(
   const effects: Effect[] = [{ kind: 'view', connectionId, view: safeView(next.engine!, seatIndex) }];
 
   if (isFull(next)) {
-    next = { ...next, lifecycle: advanceLifecycle(next.lifecycle, 'Live')! };
-    const began = beginHand(next, seed, clock());
+    // The room goes Live: stamp the record's start instant (design D1) and begin the
+    // first hand. The single `clock()` read is reused for both so they agree.
+    const liveAt = clock();
+    next = {
+      ...next,
+      lifecycle: advanceLifecycle(next.lifecycle, 'Live')!,
+      record: { ...next.record, startedAt: liveAt },
+    };
+    const began = beginHand(next, seed, liveAt);
     next = began.state;
     effects.push(...began.effects);
   }
@@ -343,7 +405,7 @@ export function closeContributionWindow(state: RoomCoreState, clock: Clock): Ste
  * updated per-seat views out to the other connections; an illegal one mutates nothing
  * and only sends the submitter a reject with a corrective resync. When a hand finishes
  * scoring the next hand begins (re-running the handshake), and when the match
- * completes the room runs out through `Complete → Persisted`.
+ * completes the room advances to `Complete` and emits a `persist` effect.
  */
 export function submitIntent(
   state: RoomCoreState,
@@ -395,11 +457,17 @@ export function submitIntent(
     ...broadcastViewsExcept(state, advanced, connectionId),
   ];
 
-  // Charge the acting seat for the time it held the turn, then advance/broadcast and
-  // grant the next acting seat its fresh base — the shared tail keeps the player and
-  // timeout paths identical (design D4).
-  const charged = chargeActingSeat(state, now);
+  // Charge the acting seat for the time it held the turn, append the accepted intent
+  // to the ordered log (design D1, replay-only), then advance/broadcast and grant the
+  // next acting seat its fresh base — the shared tail keeps the player and timeout
+  // paths identical (design D4).
+  const charged = appendIntent(chargeActingSeat(state, now), { seat, intent, forcedTimeout: false });
   return applyAdvanceBroadcast(charged, advanced, now, seed, baseEffects);
+}
+
+/** Append one entry to the ordered intent log (design D1), returning the next state. */
+function appendIntent(state: RoomCoreState, entry: IntentLogEntry): RoomCoreState {
+  return { ...state, record: { ...state.record, intents: [...state.record.intents, entry] } };
 }
 
 /**
@@ -445,7 +513,7 @@ export function expireClock(state: RoomCoreState, clock: Clock, seed: ServerSeed
   // hook's consumer; the forfeit runs the room out to its terminal lifecycle.
   if (state.ranked && timeoutCount >= state.config.timeoutAbandonThreshold) {
     const signal: Effect = { kind: 'abandonmentSignal', seat: acting, timeoutCount };
-    const forfeit = resolveForfeit(zeroed, acting, 'timeout_abandon');
+    const forfeit = resolveForfeit(zeroed, acting, 'timeout_abandon', now);
     return { state: forfeit.state, effects: [signal, ...forfeit.effects] };
   }
 
@@ -457,7 +525,9 @@ export function expireClock(state: RoomCoreState, clock: Clock, seed: ServerSeed
     return { state: zeroed, effects: [] };
   }
 
-  return applyAdvanceBroadcast(zeroed, advanced, now, seed, broadcastViews(zeroed, advanced));
+  // Record the forced timeout move in the ordered intent log (design D1, replay-only).
+  const recorded = appendIntent(zeroed, { seat: acting, intent: null, forcedTimeout: true });
+  return applyAdvanceBroadcast(recorded, advanced, now, seed, broadcastViews(recorded, advanced));
 }
 
 /**
@@ -512,20 +582,163 @@ function reject(
 }
 
 /**
- * Run the room out after a completed match: `Live → Complete → Persisted`. The
- * `Persisted` transition is an **explicit inert placeholder** in this slice — it
- * performs no durable write (real persistence + result emission is slice #6). The
- * engine `State` is retained so the final views already broadcast remain valid;
- * release happens at disposal.
+ * Complete a finished match (design D2; capability `match-persistence`): advance
+ * `Live → Complete` **only**, assemble the full {@link MatchRecord}, and emit exactly
+ * one `persist` effect carrying it. The pure core does **not** advance to `Persisted`
+ * and performs no IO — the adapter owns the durable write and the
+ * `Complete → Persisted` advance via {@link markPersisted}. The engine `State` is
+ * retained so the final views already broadcast remain valid; release is at disposal.
+ *
+ * Both completion paths funnel here: a naturally scored-out match (from
+ * {@link applyAdvanceBroadcast}) and an abandonment resolution (from
+ * {@link resolveForfeit} / {@link abortMatch}, which set `state.resolution` first).
+ * An illegal transition (not from `Live`) is a no-op emitting nothing.
  */
-function completeAndPersist(state: RoomCoreState): RoomCoreState {
+function completeMatch(state: RoomCoreState, now: number): StepResult {
   const complete = advanceLifecycle(state.lifecycle, 'Complete');
   if (complete === null) {
-    return state;
+    return { state, effects: [] };
   }
-  // Inert: no durable write here. Slice #6 owns the persistence + reveal payload.
-  const persisted = advanceLifecycle(complete, 'Persisted');
-  return { ...state, lifecycle: persisted ?? complete };
+  const next: RoomCoreState = { ...state, lifecycle: complete };
+  const record = assembleMatchRecord(next, now);
+  return { state: next, effects: [{ kind: 'persist', record }] };
+}
+
+/**
+ * Advance `Complete → Persisted` (design D2): called by the adapter only after the
+ * durable write confirms. Disposal stays gated on `Persisted`. An illegal transition
+ * (not from `Complete`) is a no-op, so a failed write that never calls this leaves the
+ * room resting at `Complete`.
+ */
+export function markPersisted(state: RoomCoreState): StepResult {
+  const persisted = advanceLifecycle(state.lifecycle, 'Persisted');
+  if (persisted === null) {
+    return { state, effects: [] };
+  }
+  return { state: { ...state, lifecycle: persisted }, effects: [] };
+}
+
+/**
+ * Assemble the complete {@link MatchRecord} from the room state at completion
+ * (design D2/D3/D4). Derives the self-describing envelope (mode/status/reason +
+ * variant snapshot & hash), carries the per-hand `HandRecord`s, computes the per-seat
+ * normalized outcomes, and builds the versioned replay blob. Pure: the writer is left
+ * to do nothing but the IO.
+ *
+ * The completion path is read from `state.resolution`: `null` is a played-out match
+ * (outcomes from the engine's `matchResult.standings`); a set resolution is a forfeit
+ * or abort (outcomes normalized from the resolution's labels).
+ */
+function assembleMatchRecord(state: RoomCoreState, completedAt: number): MatchRecord {
+  const resolution = state.resolution;
+  let status: 'complete' | 'aborted';
+  let resolutionReason: MatchRecord['match']['resolutionReason'];
+  let outcomes: MatchOutcome[];
+  if (resolution === null) {
+    status = 'complete';
+    resolutionReason = 'played_out';
+    outcomes = playedOutOutcomes(state);
+  } else {
+    resolutionReason = resolution.reason;
+    status = resolution.reason === 'aborted' ? 'aborted' : 'complete';
+    outcomes = resolution.outcomes.map((o) => ({ seat: o.seat, outcome: normalizeOutcome(o.outcome) }));
+  }
+
+  return {
+    match: {
+      mode: state.ranked ? 'ranked' : 'casual',
+      status,
+      resolutionReason,
+      // Ad-hoc casual: no registry id/version yet (design D4). The snapshot + hash
+      // keep the match self-describing without one.
+      variantId: null,
+      variantVersion: null,
+      variantSnapshot: state.variant,
+      variantHash: hashVariant(state.variant),
+      startedAt: state.record.startedAt,
+      completedAt,
+    },
+    hands: state.record.hands,
+    outcomes,
+    replay: buildReplayBlob(state),
+  };
+}
+
+/**
+ * Per-seat normalized outcomes for a played-out match (design D3): map each seat to
+ * its side via the variant partnership structure, then to that side's `win`/`loss`
+ * standing from the engine's `MatchScorer` result. A seat whose side has no standing
+ * (degenerate) falls back to `no_result`.
+ */
+function playedOutOutcomes(state: RoomCoreState): MatchOutcome[] {
+  const standings = state.engine!.public.matchResult!.standings;
+  const bySide = new Map<number, MatchOutcomeLabel>(standings.map((s) => [s.side, s.outcome]));
+  const outcomes: MatchOutcome[] = [];
+  for (let seat = 0; seat < state.seatCount; seat++) {
+    outcomes.push({ seat, outcome: bySide.get(sideOfSeat(state.variant, seat)) ?? 'no_result' });
+  }
+  return outcomes;
+}
+
+/**
+ * The side (scoring group) a seat belongs to (design D3): the partnership's index in
+ * `seating.teams.partnerships` for `partnerships`, or the seat index itself for
+ * `free-for-all` — matching the engine's own `sideOfSeat`. For the canonical Partners
+ * layout `[[0, 2], [1, 3]]` the partnership index is `0` for seats 0/2 and `1` for 1/3.
+ */
+function sideOfSeat(variant: VariantDefinition, seat: number): number {
+  const teams = variant.seating.teams;
+  if (teams.mode === 'free-for-all') {
+    return seat;
+  }
+  return teams.partnerships.findIndex((group) => group.includes(seat));
+}
+
+/**
+ * Normalize a room abandonment label to the durable `participant_outcome` vocabulary
+ * (design D3): `opponent_win → win`, `abandoner_loss` /
+ * `stranded_partner_reduced_loss → loss`, `no_result → no_result`.
+ */
+function normalizeOutcome(label: SeatOutcomeLabel): MatchOutcomeLabel {
+  switch (label) {
+    case 'opponent_win':
+      return 'win';
+    case 'abandoner_loss':
+    case 'stranded_partner_reduced_loss':
+      return 'loss';
+    case 'no_result':
+      return 'no_result';
+  }
+}
+
+/**
+ * Build the versioned, JSON-safe replay blob (design D7) from the accumulator: the
+ * variant snapshot, the per-hand summaries, the ordered intent log, and the seed
+ * reveals with their `Uint8Array` bytes hex-encoded. Opaque once written — its meaning
+ * is owned solely by the match runtime.
+ */
+function buildReplayBlob(state: RoomCoreState): ReplayBlobV1 {
+  return {
+    format: REPLAY_FORMAT,
+    schemaVersion: REPLAY_SCHEMA_VERSION,
+    variant: state.variant,
+    hands: state.record.hands.map((hand) => ({
+      handNumber: hand.handNumber,
+      bidderSeat: hand.bidderSeat,
+      contractValue: hand.contractValue,
+      trump: hand.trump,
+      made: hand.made,
+      lines: hand.lines.map((line) => ({ side: line.side, meld: line.meld, counters: line.counters, total: line.total })),
+      cumulativeBySide: { ...hand.cumulativeBySide },
+    })),
+    intents: state.record.intents.map((entry) => ({ seat: entry.seat, forcedTimeout: entry.forcedTimeout, intent: entry.intent })),
+    reveals: state.record.reveals.map((reveal) => ({
+      handNonce: reveal.handNonce,
+      serverSeed: toHex(reveal.serverSeed),
+      commit: toHex(reveal.commit),
+      contributions: reveal.contributions.map((c) => ({ seat: c.seat, clientSeed: toHex(c.clientSeed) })),
+    })),
+  };
 }
 
 /**
@@ -556,12 +769,13 @@ function partnerOf(variant: VariantDefinition, seat: number): number | null {
  * here so they differ only in the `reason`. Per-seat outcome labels are computed from
  * the variant's partnership structure: the abandoner an `abandoner_loss`, its partner
  * a protected `stranded_partner_reduced_loss`, every opposing seat an `opponent_win`.
- * The resolution is recorded on the room and the room is run out through
- * `Complete → Persisted` (reusing `completeAndPersist`), emitting an `abandonResolution`
- * (the terminal result) and an `abandonEvent` (the leaver-penalty hook identifying the
- * abandoner). No bot is ever seated; the engine `State` is untouched.
+ * The resolution is recorded on the room and the room is completed (`Live → Complete`)
+ * via {@link completeMatch}, emitting the `persist` effect alongside an
+ * `abandonResolution` (the terminal result) and an `abandonEvent` (the leaver-penalty
+ * hook identifying the abandoner). No bot is ever seated; the engine `State` is
+ * untouched.
  */
-function resolveForfeit(state: RoomCoreState, abandonerSeat: number, reason: ResolutionReason): StepResult {
+function resolveForfeit(state: RoomCoreState, abandonerSeat: number, reason: ResolutionReason, now: number): StepResult {
   const partner = partnerOf(state.variant, abandonerSeat);
   const outcomes: SeatOutcome[] = [];
   for (let seat = 0; seat < state.seatCount; seat++) {
@@ -574,12 +788,13 @@ function resolveForfeit(state: RoomCoreState, abandonerSeat: number, reason: Res
     }
   }
   const resolution = { reason, outcomes };
-  const next = completeAndPersist({ ...state, resolution });
+  const completed = completeMatch({ ...state, resolution }, now);
   const effects: Effect[] = [
+    ...completed.effects,
     { kind: 'abandonResolution', reason, outcomes },
     { kind: 'abandonEvent', seat: abandonerSeat, reason },
   ];
-  return { state: next, effects };
+  return { state: completed.state, effects };
 }
 
 /**
@@ -587,17 +802,18 @@ function resolveForfeit(state: RoomCoreState, abandonerSeat: number, reason: Res
  * `match-disconnect-abandonment`, "Multi-drop and crash abort"). Used when two or more
  * ranked seats are past grace simultaneously and no legitimate single-forfeit result is
  * possible: every seat is assigned `no_result`, the resolution is recorded, and the room
- * is run out through `Complete → Persisted`. Only an `abandonResolution` is emitted —
- * **no** `abandonEvent`, because no seat is charged — and no winner is fabricated.
+ * is completed (`Live → Complete`) via {@link completeMatch}. The `persist` effect and an
+ * `abandonResolution` are emitted — **no** `abandonEvent`, because no seat is charged —
+ * and no winner is fabricated.
  */
-function abortMatch(state: RoomCoreState, reason: ResolutionReason): StepResult {
+function abortMatch(state: RoomCoreState, reason: ResolutionReason, now: number): StepResult {
   const outcomes: SeatOutcome[] = [];
   for (let seat = 0; seat < state.seatCount; seat++) {
     outcomes.push({ seat, outcome: 'no_result' });
   }
   const resolution = { reason, outcomes };
-  const next = completeAndPersist({ ...state, resolution });
-  return { state: next, effects: [{ kind: 'abandonResolution', reason, outcomes }] };
+  const completed = completeMatch({ ...state, resolution }, now);
+  return { state: completed.state, effects: [...completed.effects, { kind: 'abandonResolution', reason, outcomes }] };
 }
 
 /**
@@ -637,9 +853,9 @@ export function expireGrace(state: RoomCoreState, seat: number, clock: Clock, se
       (s) => s.seatIndex !== seat && s.connectionStatus === 'Disconnected' && s.graceDeadline !== null && now >= s.graceDeadline,
     );
     if (anotherPastGrace) {
-      return abortMatch(state, 'aborted');
+      return abortMatch(state, 'aborted', now);
     }
-    return resolveForfeit(state, seat, 'forfeit_abandon');
+    return resolveForfeit(state, seat, 'forfeit_abandon', now);
   }
 
   // Casual: hand the seat to the stubbed bot-takeover seating contract, do not resolve.

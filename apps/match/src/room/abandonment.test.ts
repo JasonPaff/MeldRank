@@ -7,6 +7,7 @@ import {
   expireGrace,
   joinRoom,
   leaveRoom,
+  markPersisted,
   pendingDeadline,
   reconnect,
   submitContribution,
@@ -208,10 +209,14 @@ describe('ranked forfeit (task 5.3)', () => {
     expect(event).toMatchObject({ seat: abandoner, reason: 'forfeit_abandon' });
     // The resolution effect carries the reason + outcomes.
     expect(result.effects.some((e) => e.kind === 'abandonResolution')).toBe(true);
-    // The room ran out to its terminal lifecycle; no bot was seated; disposal releases it.
-    expect(result.state.lifecycle).toBe('Persisted');
+    // The room rests at Complete and emits a persist effect; no bot was seated. The
+    // adapter drives Complete → Persisted after the durable write, then disposes.
+    expect(result.state.lifecycle).toBe('Complete');
+    expect(result.effects.some((e) => e.kind === 'persist')).toBe(true);
     expect(result.state.seats.every((s) => s.connectionStatus !== 'BotControlled')).toBe(true);
-    expect(disposeRoom(result.state).state.lifecycle).toBe('Disposed');
+    const persisted = markPersisted(result.state).state;
+    expect(persisted.lifecycle).toBe('Persisted');
+    expect(disposeRoom(persisted).state.lifecycle).toBe('Disposed');
   });
 
   it('resolves a crossed timeout threshold as timeout_abandon through the same path', () => {
@@ -233,7 +238,8 @@ describe('ranked forfeit (task 5.3)', () => {
     expect(outcomes.find((o) => o.seat === actor)!.outcome).toBe('abandoner_loss');
     expect(outcomes.find((o) => o.seat === partnerSeat(actor))!.outcome).toBe('stranded_partner_reduced_loss');
     expect(result.effects.some((e) => e.kind === 'abandonEvent')).toBe(true);
-    expect(result.state.lifecycle).toBe('Persisted');
+    expect(result.effects.some((e) => e.kind === 'persist')).toBe(true);
+    expect(result.state.lifecycle).toBe('Complete');
   });
 });
 
@@ -253,7 +259,8 @@ describe('multi-drop abort (task 5.4)', () => {
     const outcomes = result.state.resolution!.outcomes;
     expect(outcomes.some((o) => o.outcome === 'opponent_win')).toBe(false);
     expect(outcomes.some((o) => o.outcome === 'abandoner_loss')).toBe(false);
-    expect(result.state.lifecycle).toBe('Persisted');
+    expect(result.effects.some((e) => e.kind === 'persist')).toBe(true);
+    expect(result.state.lifecycle).toBe('Complete');
   });
 });
 

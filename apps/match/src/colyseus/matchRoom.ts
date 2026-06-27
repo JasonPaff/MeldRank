@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { Room, type Client, type Delayed } from 'colyseus';
 import { SINGLE_DECK_CUTTHROAT, SINGLE_DECK_PARTNERS, type VariantDefinition } from '@meldrank/shared';
+import type { DatabaseClient, RedisClient } from '@meldrank/shared/server';
 import { fromHex, toHex } from '@meldrank/fairness';
 import {
   closeContributionWindow,
@@ -10,12 +11,14 @@ import {
   expireGrace,
   joinRoom,
   leaveRoom,
+  markPersisted,
   pendingDeadline,
   reconnect,
   submitContribution,
   submitIntent,
   type Clock,
   type Effect,
+  type MatchRecord,
   type PlayerIntent,
   type ResolutionReason,
   type RoomCoreState,
@@ -23,6 +26,7 @@ import {
   type ServerSeedSource,
   type StepResult,
 } from '../room';
+import { buildMatchResultEvent, persistMatchRecord, publishMatchResult } from '../persistence';
 import { RoomMetadata } from './schema';
 
 /**
@@ -49,8 +53,20 @@ interface ContributeMessage {
 /** Production entropy for a hand's server seed: 32 fresh CSPRNG bytes. */
 const serverSeed: ServerSeedSource = () => new Uint8Array(randomBytes(32));
 
+/** Bounded retry for the durable write on a `persist` effect (design D5, risks). */
+const PERSIST_MAX_ATTEMPTS = 3;
+const PERSIST_BACKOFF_MS = 250;
+
 export class MatchRoom extends Room<{ state: RoomMetadata }> {
   private core!: RoomCoreState;
+  /**
+   * The durable backend (capability `match-persistence`), injected via the room
+   * definition's options from `apps/match/src/index.ts`. Undefined in a bare test
+   * harness that constructs the room without a backend; a completed match then logs
+   * and disposes rather than persisting.
+   */
+  private db?: DatabaseClient;
+  private redis?: RedisClient;
   /**
    * The single pending wall-clock timer (design D3): the acting seat's turn expiry or
    * the open contribution window's close. Re-armed from the new state after every
@@ -64,10 +80,13 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
    */
   private readonly now: Clock = () => this.clock.currentTime;
 
-  override onCreate(options?: { variantId?: string }): void {
+  override onCreate(options?: { variantId?: string; db?: DatabaseClient; redis?: RedisClient }): void {
     const variant = selectVariant(options?.variantId);
     this.core = createRoomCore(variant);
     this.maxClients = variant.seating.playerCount;
+    // The durable backend is injected through the room definition options (design D5).
+    this.db = options?.db;
+    this.redis = options?.redis;
 
     const state = new RoomMetadata();
     state.lifecycle = this.core.lifecycle;
@@ -134,8 +153,8 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
   /**
    * Adopt a `RoomCore` step: take its next state, emit each effect to its target
    * connection, refresh the presence metadata, re-arm the pending deadline timer from
-   * the new state, and — once a completed match has run through to the inert
-   * `Persisted` transition — disconnect the room so it disposes.
+   * the new state, and — once the durable write has driven the room to `Persisted`
+   * (capability `match-persistence`) — disconnect the room so it disposes.
    */
   private run(step: StepResult): void {
     this.core = step.state;
@@ -203,6 +222,9 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
       case 'botTakeoverRequested':
         this.onBotTakeoverRequested(effect.seat);
         return;
+      case 'persist':
+        this.onPersist(effect.record);
+        return;
     }
     const client = this.findClient(effect.connectionId);
     if (client === undefined) {
@@ -266,6 +288,47 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
     console.warn(`[MatchRoom ${this.roomId}] bot takeover requested: seat ${seat}`);
   }
 
+  /**
+   * Durably persist the completed match (design D5; capability `match-persistence`).
+   * The room rests at `Complete`; the adapter writes the record, publishes the result
+   * event, and only then drives `Complete → Persisted` (which disposes the room). With
+   * no backend wired (a bare test harness), there is nothing to persist — log and
+   * dispose so the room never leaks.
+   */
+  private onPersist(record: MatchRecord): void {
+    if (this.db === undefined || this.redis === undefined) {
+      console.error(`[MatchRoom ${this.roomId}] persist skipped: no durable backend wired`);
+      void this.disconnect();
+      return;
+    }
+    void this.persistWithRetry(this.db, this.redis, record);
+  }
+
+  /**
+   * Write + publish with bounded backoff (design D5, risks). On a confirmed
+   * write+publish, advance the room to `Persisted` (driving disposal via {@link run}).
+   * On permanent failure after the retry budget, log and still dispose so the room does
+   * not leak — the result is lost rather than the process wedged, and the room stays at
+   * `Complete` until that disposal.
+   */
+  private async persistWithRetry(db: DatabaseClient, redis: RedisClient, record: MatchRecord): Promise<void> {
+    for (let attempt = 1; attempt <= PERSIST_MAX_ATTEMPTS; attempt++) {
+      try {
+        const matchId = await persistMatchRecord(db, record);
+        await publishMatchResult(redis, buildMatchResultEvent(record, matchId));
+        this.run(markPersisted(this.core));
+        return;
+      } catch (error) {
+        if (attempt >= PERSIST_MAX_ATTEMPTS) {
+          console.error(`[MatchRoom ${this.roomId}] durable write failed after ${PERSIST_MAX_ATTEMPTS} attempts; disposing`, error);
+          void this.disconnect();
+          return;
+        }
+        await delay(PERSIST_BACKOFF_MS * attempt);
+      }
+    }
+  }
+
   private findClient(connectionId: string): Client | undefined {
     for (const client of this.clients) {
       if (client.sessionId === connectionId) {
@@ -296,4 +359,9 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
 /** Resolve the room's variant from the create options (defaults to Partners). */
 function selectVariant(variantId?: string): VariantDefinition {
   return variantId === 'single-deck-cutthroat' ? SINGLE_DECK_CUTTHROAT : SINGLE_DECK_PARTNERS;
+}
+
+/** Resolve after `ms`, the inter-attempt backoff for the durable write (design D5). */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

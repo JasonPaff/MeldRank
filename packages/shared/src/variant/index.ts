@@ -45,6 +45,9 @@ export {
 
 export { SINGLE_DECK_PARTNERS, SINGLE_DECK_CUTTHROAT } from './canonical';
 
+/** Stable canonical-JSON content hash of a variant — the `matches.variant_hash` producer (design D4). */
+export { canonicalJson, hashVariant } from './hash';
+
 /**
  * The Standard meld table: the canonical Class A/B/C meld definitions and point
  * values (plus double bonuses) resolved from `melding.meldTableId`. Plain,
