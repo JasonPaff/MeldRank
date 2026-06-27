@@ -12,4 +12,5 @@ export * from './env/load';
 export { allEnvKeys } from './env/keys';
 export * from './db/client';
 export * as dbSchema from './db/schema';
+export * from './db/projector';
 export * from './redis/client';

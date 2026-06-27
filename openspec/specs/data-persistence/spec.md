@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Establish the Drizzle ORM client over Neon Postgres on the server-only surface, the migration tooling to author and apply migrations, and an empty schema home ready for future table definitions.
+Establish the Drizzle ORM client over Neon Postgres on the server-only surface and the migration tooling to author and apply migrations. The schema home that this capability established is now populated by domain tables owned by the `match-record-store` capability.
 
 ## Requirements
 
@@ -33,12 +33,3 @@ The repository SHALL provide Drizzle migration tooling — a `drizzle.config` an
 
 - **WHEN** the migration pipeline is exercised during implementation
 - **THEN** a generated migration applies successfully and the schema home remains empty afterward (no domain tables are introduced by this change)
-
-### Requirement: Empty schema home
-
-The repository SHALL establish the location where Drizzle table definitions will live as an empty, importable schema module, so the Data Model change can add tables without further plumbing.
-
-#### Scenario: Schema module exists and is empty
-
-- **WHEN** the Drizzle schema module is inspected
-- **THEN** it exists and exports no domain tables, serving only as the designated home for future table definitions
