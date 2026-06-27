@@ -1,8 +1,13 @@
 /**
- * `@meldrank/shared/fairness` — the pure, isomorphic commit–reveal entropy layer
- * that feeds the engine Dealer's injected `Rng` seam, making every ranked deal
+ * `@meldrank/fairness` — the pure, isomorphic commit–reveal entropy layer that
+ * feeds the engine Dealer's injected `Rng` seam, making every ranked deal
  * independently auditable. Realizes the `provably-fair-shuffle` change and Match
  * Runtime — Design v1 §8.
+ *
+ * It sits one layer above the engine (it consumes the Dealer's `deal`/`Rng` to
+ * reproduce and verify a deal) and below the apps, so it is its own package rather
+ * than part of the foundation `@meldrank/shared` — keeping the package graph acyclic
+ * (`shared ← engine ← fairness ← apps`).
  *
  * The protocol, end to end:
  *   1. {@link commit} the secret `serverSeed` before the deal (binds the server).

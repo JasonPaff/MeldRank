@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deal } from '@meldrank/engine';
-import { SINGLE_DECK_PARTNERS } from '../variant';
+import { SINGLE_DECK_PARTNERS } from '@meldrank/shared';
 import { assembleSeed, type SeatContribution } from './assemble';
 import { buildRevealBundle } from './build';
 import { commit } from './commit';

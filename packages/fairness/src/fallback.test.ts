@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deal } from '@meldrank/engine';
-import { SINGLE_DECK_CUTTHROAT } from '../variant';
+import { SINGLE_DECK_CUTTHROAT } from '@meldrank/shared';
 import { assembleSeed, fallbackContribution, type SeatContribution } from './assemble';
 import { toHex } from './encoding';
 import { rngFromSeed } from './rng';

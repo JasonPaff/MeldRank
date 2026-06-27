@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deal } from '@meldrank/engine';
-import { SINGLE_DECK_PARTNERS } from '../variant';
+import { SINGLE_DECK_PARTNERS } from '@meldrank/shared';
 import { dealtResultDigest } from './digest';
 import { toHex } from './encoding';
 import { rngFromSeed } from './rng';

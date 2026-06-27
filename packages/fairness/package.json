@@ -1,5 +1,5 @@
 {
-  "name": "@meldrank/shared",
+  "name": "@meldrank/fairness",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -7,14 +7,6 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
-    },
-    "./server": {
-      "types": "./src/server/index.ts",
-      "default": "./src/server/index.ts"
-    },
-    "./meld": {
-      "types": "./src/variant/meld-table.ts",
-      "default": "./src/variant/meld-table.ts"
     }
   },
   "main": "./src/index.ts",
@@ -26,12 +18,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.1.0",
-    "@upstash/redis": "^1.38.0",
-    "drizzle-orm": "^0.45.2",
+    "@meldrank/engine": "workspace:*",
+    "@noble/hashes": "^2.0.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@meldrank/shared": "workspace:*",
     "@types/node": "^22.20.0",
     "eslint": "^10.5.0",
     "typescript": "^6.0.3",

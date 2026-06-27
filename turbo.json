@@ -4,11 +4,11 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+      "outputs": []
     },
-    "@meldrank/engine#build": {
-      "dependsOn": [],
-      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+    "@meldrank/web#build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**"]
     },
     "typecheck": {
       "dependsOn": ["^build"]
