@@ -10,6 +10,9 @@ import { schema } from '@colyseus/schema';
  * - `seatToAct` — the seat currently on the clock, or `-1` when none.
  * - `clockDeadline` — the pending on-clock deadline (injected ms), or `-1` when none.
  * - `occupancy` — per-seat occupancy flags (which seats are filled).
+ * - `seatStatus` — per-seat connection status for the lobby/table UI: `'Empty'` for
+ *   an unfilled seat, otherwise the seat's `connectionStatus` (`'Connected'`,
+ *   `'Disconnected'`, `'BotControlled'`) so a dropped or bot-held seat is visible.
  *
  * All hidden information (hands, the unrevealed widow) is delivered exclusively
  * through per-recipient `viewFor` messages, never this schema. The per-seat clock
@@ -24,6 +27,7 @@ export const RoomMetadata = schema({
   seatToAct: 'number',
   clockDeadline: 'number',
   occupancy: ['boolean'],
+  seatStatus: ['string'],
 });
 
 /** The instance type of the room metadata schema. */

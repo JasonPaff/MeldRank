@@ -13,8 +13,10 @@ import type {
   JoinResult,
   PendingDeadline,
   PlayerIntent,
+  ResolutionReason,
   RoomCoreState,
   SeatClockSnapshot,
+  SeatOutcome,
   ServerSeedSource,
   StepResult,
 } from './types';
@@ -57,6 +59,7 @@ export function createRoomCore(variant: VariantDefinition, options: CreateRoomOp
     ranked: options.ranked ?? false,
     turnStartedAt: null,
     contributionDeadline: null,
+    resolution: null,
   };
 }
 
@@ -142,27 +145,32 @@ function stampTurn(state: RoomCoreState, now: number): RoomCoreState {
 }
 
 /**
+ * The public clock snapshot for the room: the acting seat, its authoritative
+ * deadline, and every seat's banks. The clocks are public, so every recipient sees
+ * the same snapshot — `clockStateEffects` fans it to all seats, and `reconnect`
+ * targets a single returning connection with it.
+ */
+function clockSnapshot(state: RoomCoreState): { actingSeat: number | null; deadline: number | null; seats: SeatClockSnapshot[] } {
+  const acting = state.engine?.public.seatToAct ?? null;
+  const actingClock = acting === null ? undefined : state.seats.find((seat) => seat.seatIndex === acting);
+  const deadline =
+    acting !== null && state.turnStartedAt !== null && actingClock !== undefined ? deadlineFor(state.turnStartedAt, actingClock) : null;
+  const seats: SeatClockSnapshot[] = state.seats.map((seat) => ({
+    seat: seat.seatIndex,
+    remainingBaseMs: seat.remainingBaseMs,
+    remainingReserveMs: seat.remainingReserveMs,
+  }));
+  return { actingSeat: acting, deadline, seats };
+}
+
+/**
  * One `clockState` effect per seated connection (spec: "Per-seat clock state
  * broadcast"). Each carries the acting seat, its authoritative deadline, and every
  * seat's banks — the clocks are public, so each recipient receives the same snapshot.
  */
 function clockStateEffects(state: RoomCoreState): Effect[] {
-  const acting = state.engine?.public.seatToAct ?? null;
-  const actingClock = acting === null ? undefined : state.seats.find((seat) => seat.seatIndex === acting);
-  const deadline =
-    acting !== null && state.turnStartedAt !== null && actingClock !== undefined ? deadlineFor(state.turnStartedAt, actingClock) : null;
-  const snapshots: SeatClockSnapshot[] = state.seats.map((seat) => ({
-    seat: seat.seatIndex,
-    remainingBaseMs: seat.remainingBaseMs,
-    remainingReserveMs: seat.remainingReserveMs,
-  }));
-  return state.seats.map((seat) => ({
-    kind: 'clockState',
-    connectionId: seat.connectionId,
-    actingSeat: acting,
-    deadline,
-    seats: snapshots,
-  }));
+  const snapshot = clockSnapshot(state);
+  return state.seats.map((seat) => ({ kind: 'clockState', connectionId: seat.connectionId, ...snapshot }));
 }
 
 /**
@@ -347,7 +355,10 @@ export function submitIntent(
 ): StepResult {
   const now = clock();
   const engine = state.engine;
-  if (state.lifecycle !== 'Live' || engine === null) {
+  // A resolved match (forfeit/abort) has left `Live` and accepts no further intents
+  // (capability `match-disconnect-abandonment`, "Resolved room rejects further
+  // intents"); the lifecycle guard below also covers it once it advances past `Live`.
+  if (state.resolution !== null || state.lifecycle !== 'Live' || engine === null) {
     // A disposed room has released its engine and accepts no input — drop silently.
     if (engine === null) {
       return { state, effects: [] };
@@ -427,43 +438,66 @@ export function expireClock(state: RoomCoreState, clock: Clock, seed: ServerSeed
   const seats = state.seats.map((s) => (s.seatIndex === acting ? { ...s, remainingBaseMs: 0, remainingReserveMs: 0, timeoutCount } : s));
   const zeroed: RoomCoreState = { ...state, seats };
 
-  // Abandonment signal (design D7): ranked-only, on crossing the configured threshold.
-  const abandonment: Effect[] =
-    state.ranked && timeoutCount >= state.config.timeoutAbandonThreshold ? [{ kind: 'abandonmentSignal', seat: acting, timeoutCount }] : [];
+  // Ranked repeated-timeout abandonment (design D5; delta `match-move-clocks`): on
+  // crossing the configured threshold the signal now *drives resolution* — the seat is
+  // treated as a leaver and forfeits with reason `timeout_abandon`, rather than being
+  // granted another forced move. The signal is still emitted for the leaver-penalty
+  // hook's consumer; the forfeit runs the room out to its terminal lifecycle.
+  if (state.ranked && timeoutCount >= state.config.timeoutAbandonThreshold) {
+    const signal: Effect = { kind: 'abandonmentSignal', seat: acting, timeoutCount };
+    const forfeit = resolveForfeit(zeroed, acting, 'timeout_abandon');
+    return { state: forfeit.state, effects: [signal, ...forfeit.effects] };
+  }
 
   const event: TimeoutEvent = { type: 'timeout', seat: acting };
   const advanced = reduce(engine, event);
   if (advanced === engine) {
     // No forced move was defined for this phase (TimeoutMove returned null). The
-    // banks/tally still updated; nothing advances or broadcasts beyond the signal.
-    return { state: zeroed, effects: abandonment };
+    // banks/tally still updated; nothing advances or broadcasts.
+    return { state: zeroed, effects: [] };
   }
 
-  const result = applyAdvanceBroadcast(zeroed, advanced, now, seed, broadcastViews(zeroed, advanced));
-  return { state: result.state, effects: [...result.effects, ...abandonment] };
+  return applyAdvanceBroadcast(zeroed, advanced, now, seed, broadcastViews(zeroed, advanced));
 }
 
 /**
- * The room's currently-pending deadline (design D3), read by the adapter after every
- * step to (re)arm its single wall-clock timer: the open contribution window's close
- * while a commit is awaiting contributions, otherwise the acting seat's turn expiry,
- * or `null` when nothing is on the clock.
+ * The room's currently-pending deadline (design D2/D3), read by the adapter after
+ * every step to (re)arm its single wall-clock timer: the **earliest** of the open
+ * contribution window's close, the acting seat's turn expiry, and every disconnected
+ * seat's reconnection grace deadline (each a candidate; the soonest wins). A `'grace'`
+ * winner carries its `seat` so the adapter routes the fire to `expireGrace`. Returns
+ * `null` when nothing is on the clock. This naturally implements "wait out the shorter
+ * of (grace, move clock)" with no special-casing — the concurrent deadlines simply
+ * compete.
  */
 export function pendingDeadline(state: RoomCoreState): PendingDeadline | null {
   if (state.lifecycle !== 'Live' || state.engine === null) {
     return null;
   }
+  const candidates: PendingDeadline[] = [];
+
   if (state.handshake !== null && state.contributionDeadline !== null) {
-    return { at: state.contributionDeadline, kind: 'contribution' };
+    candidates.push({ at: state.contributionDeadline, kind: 'contribution' });
   }
+
   const acting = state.engine.public.seatToAct;
   if (acting !== null && state.turnStartedAt !== null) {
     const actingClock = state.seats.find((s) => s.seatIndex === acting);
     if (actingClock !== undefined) {
-      return { at: deadlineFor(state.turnStartedAt, actingClock), kind: 'turn' };
+      candidates.push({ at: deadlineFor(state.turnStartedAt, actingClock), kind: 'turn' });
     }
   }
-  return null;
+
+  for (const seat of state.seats) {
+    if (seat.connectionStatus === 'Disconnected' && seat.graceDeadline !== null) {
+      candidates.push({ at: seat.graceDeadline, kind: 'grace', seat: seat.seatIndex });
+    }
+  }
+
+  if (candidates.length === 0) {
+    return null;
+  }
+  return candidates.reduce((earliest, candidate) => (candidate.at < earliest.at ? candidate : earliest));
 }
 
 /** Build a reject effect (no other broadcast) leaving the room state unchanged. */
@@ -495,11 +529,153 @@ function completeAndPersist(state: RoomCoreState): RoomCoreState {
 }
 
 /**
- * Handle a connection leaving. Before the room goes `Live`, a leaving seat is freed
- * (and the room reverts to `Reserved` if it empties). Once `Live`, leaving is a no-op
- * here — disconnect/reconnect/abandonment handling is a later slice (#4).
+ * The abandoner's partner seat per the variant's partnership structure (design D6):
+ * the other seat in the partnership group containing `seat`. Returns `null` for
+ * partnerless variants (Cutthroat / free-for-all), where every non-abandoner is an
+ * opponent and there is no stranded partner. Ranked v1 only exercises the Partners
+ * path; the helper is written generally so a future ≥3-per-team variant still resolves.
  */
-export function leaveRoom(state: RoomCoreState, connectionId: string): StepResult {
+function partnerOf(variant: VariantDefinition, seat: number): number | null {
+  const teams = variant.seating.teams;
+  if (teams.mode !== 'partnerships') {
+    return null;
+  }
+  for (const group of teams.partnerships) {
+    if (group.includes(seat)) {
+      const partner = group.find((member) => member !== seat);
+      return partner ?? null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve a ranked abandonment as a **forfeit** (design D5; capability
+ * `match-disconnect-abandonment`). Both forfeit triggers — grace expiry
+ * (`forfeit_abandon`) and the repeated-timeout threshold (`timeout_abandon`) — funnel
+ * here so they differ only in the `reason`. Per-seat outcome labels are computed from
+ * the variant's partnership structure: the abandoner an `abandoner_loss`, its partner
+ * a protected `stranded_partner_reduced_loss`, every opposing seat an `opponent_win`.
+ * The resolution is recorded on the room and the room is run out through
+ * `Complete → Persisted` (reusing `completeAndPersist`), emitting an `abandonResolution`
+ * (the terminal result) and an `abandonEvent` (the leaver-penalty hook identifying the
+ * abandoner). No bot is ever seated; the engine `State` is untouched.
+ */
+function resolveForfeit(state: RoomCoreState, abandonerSeat: number, reason: ResolutionReason): StepResult {
+  const partner = partnerOf(state.variant, abandonerSeat);
+  const outcomes: SeatOutcome[] = [];
+  for (let seat = 0; seat < state.seatCount; seat++) {
+    if (seat === abandonerSeat) {
+      outcomes.push({ seat, outcome: 'abandoner_loss' });
+    } else if (seat === partner) {
+      outcomes.push({ seat, outcome: 'stranded_partner_reduced_loss' });
+    } else {
+      outcomes.push({ seat, outcome: 'opponent_win' });
+    }
+  }
+  const resolution = { reason, outcomes };
+  const next = completeAndPersist({ ...state, resolution });
+  const effects: Effect[] = [
+    { kind: 'abandonResolution', reason, outcomes },
+    { kind: 'abandonEvent', seat: abandonerSeat, reason },
+  ];
+  return { state: next, effects };
+}
+
+/**
+ * Abort the match with no rating change (design D7; capability
+ * `match-disconnect-abandonment`, "Multi-drop and crash abort"). Used when two or more
+ * ranked seats are past grace simultaneously and no legitimate single-forfeit result is
+ * possible: every seat is assigned `no_result`, the resolution is recorded, and the room
+ * is run out through `Complete → Persisted`. Only an `abandonResolution` is emitted —
+ * **no** `abandonEvent`, because no seat is charged — and no winner is fabricated.
+ */
+function abortMatch(state: RoomCoreState, reason: ResolutionReason): StepResult {
+  const outcomes: SeatOutcome[] = [];
+  for (let seat = 0; seat < state.seatCount; seat++) {
+    outcomes.push({ seat, outcome: 'no_result' });
+  }
+  const resolution = { reason, outcomes };
+  const next = completeAndPersist({ ...state, resolution });
+  return { state: next, effects: [{ kind: 'abandonResolution', reason, outcomes }] };
+}
+
+/**
+ * Resolve an expired reconnection grace window (design D7/D8; capability
+ * `match-disconnect-abandonment`). A no-op unless the named seat is genuinely
+ * `Disconnected` with its grace deadline passed (the early-fire guard lets the adapter
+ * reschedule), and a no-op once the match has resolved or the room is no longer live.
+ *
+ * In a **ranked** room: if another seat is already past its grace window unresolved,
+ * there is no legitimate single result, so the match `abortMatch`s; otherwise it
+ * `resolveForfeit`s the abandoner with reason `forfeit_abandon`. A ranked room never
+ * seats a bot.
+ *
+ * In a **casual** room: the seat is marked `BotControlled` and a `botTakeoverRequested`
+ * effect is emitted (the stubbed seating contract — slice #5 wires the real bot worker);
+ * the match is **not** resolved, and the returning human can reclaim the seat via
+ * `reconnect`. A `BotControlled` seat still runs its move clock (no bot acts yet).
+ */
+export function expireGrace(state: RoomCoreState, seat: number, clock: Clock, seed: ServerSeedSource): StepResult {
+  void seed; // resolution does not deal a new hand; the seam matches the other timer entrypoints.
+  const now = clock();
+  if (state.resolution !== null || state.lifecycle !== 'Live' || state.engine === null) {
+    return { state, effects: [] };
+  }
+  const assignment = state.seats.find((s) => s.seatIndex === seat);
+  if (assignment === undefined || assignment.connectionStatus !== 'Disconnected' || assignment.graceDeadline === null) {
+    return { state, effects: [] };
+  }
+  // Early-fire guard: if the grace deadline has not actually passed, do nothing and let
+  // the adapter re-arm its timer from the recomputed deadline (the established pattern).
+  if (now < assignment.graceDeadline) {
+    return { state, effects: [] };
+  }
+
+  if (state.ranked) {
+    const anotherPastGrace = state.seats.some(
+      (s) => s.seatIndex !== seat && s.connectionStatus === 'Disconnected' && s.graceDeadline !== null && now >= s.graceDeadline,
+    );
+    if (anotherPastGrace) {
+      return abortMatch(state, 'aborted');
+    }
+    return resolveForfeit(state, seat, 'forfeit_abandon');
+  }
+
+  // Casual: hand the seat to the stubbed bot-takeover seating contract, do not resolve.
+  const seats = state.seats.map((s) =>
+    s.seatIndex === seat ? { ...s, connectionStatus: 'BotControlled' as const, graceDeadline: null } : s,
+  );
+  return { state: { ...state, seats }, effects: [{ kind: 'botTakeoverRequested', seat }] };
+}
+
+/**
+ * Handle a connection leaving (capability `match-disconnect-abandonment`,
+ * "Disconnect detection and grace window"). Before the room goes `Live`, a leaving
+ * seat is freed (and the room reverts to `Reserved` if it empties) exactly as before
+ * this slice. Once `Live`, the seat is **not** freed: it is marked `Disconnected` and
+ * stamped a server-authoritative grace deadline (`now + config.reconnectGraceMs`),
+ * leaving the seat assignment and the engine `State` untouched so the seat can be
+ * reclaimed. The grace deadline becomes a pending-deadline candidate; the adapter
+ * arms its timer and routes the eventual fire to `expireGrace`.
+ */
+export function leaveRoom(state: RoomCoreState, connectionId: string, clock: Clock): StepResult {
+  if (state.lifecycle === 'Live') {
+    const now = clock();
+    let changed = false;
+    const seats = state.seats.map((seat) => {
+      if (seat.connectionId !== connectionId || seat.connectionStatus !== 'Connected') {
+        return seat;
+      }
+      changed = true;
+      return { ...seat, connectionStatus: 'Disconnected' as const, graceDeadline: now + state.config.reconnectGraceMs };
+    });
+    if (!changed) {
+      return { state, effects: [] };
+    }
+    return { state: { ...state, seats }, effects: [] };
+  }
+
   if (state.lifecycle !== 'Filling') {
     return { state, effects: [] };
   }
@@ -509,6 +685,38 @@ export function leaveRoom(state: RoomCoreState, connectionId: string): StepResul
   }
   const lifecycle = seats.length === 0 ? 'Reserved' : state.lifecycle;
   return { state: { ...state, seats, lifecycle }, effects: [] };
+}
+
+/**
+ * Reconnect a dropped seat within its grace window (design D4; capability
+ * `match-disconnect-abandonment`, "Reconnection within grace resyncs the seat"). The
+ * seat is found by its stable `token` (the join-time identity that survives a new
+ * transport session), its `connectionId` rewritten to the new connection, its grace
+ * deadline cleared, and its status restored to `Connected` (also from a casual
+ * `BotControlled` takeover). The returning connection is pushed a full authoritative
+ * resync — its `viewFor` view plus the current clock state — so it renders the live
+ * table without replaying incremental messages. The engine `State` is untouched. A
+ * no-op once the match has resolved (a resolved seat is never restored) or the room
+ * is no longer live, or when no seat matches the token.
+ */
+export function reconnect(state: RoomCoreState, token: string, newConnectionId: string, clock: Clock): StepResult {
+  void clock; // reconnection does not read the clock; the seam is kept for symmetry/future use.
+  if (state.resolution !== null || state.lifecycle !== 'Live' || state.engine === null) {
+    return { state, effects: [] };
+  }
+  const assignment = state.seats.find((seat) => seat.token === token);
+  if (assignment === undefined) {
+    return { state, effects: [] };
+  }
+  const seats = state.seats.map((seat) =>
+    seat.token === token ? { ...seat, connectionId: newConnectionId, connectionStatus: 'Connected' as const, graceDeadline: null } : seat,
+  );
+  const next: RoomCoreState = { ...state, seats };
+  const effects: Effect[] = [
+    { kind: 'view', connectionId: newConnectionId, view: safeView(next.engine!, assignment.seatIndex) },
+    { kind: 'clockState', connectionId: newConnectionId, ...clockSnapshot(next) },
+  ];
+  return { state: next, effects };
 }
 
 /**

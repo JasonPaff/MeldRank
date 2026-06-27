@@ -55,6 +55,8 @@ export function withSeat(seats: readonly SeatAssignment[], seatIndex: number, co
     remainingBaseMs: config.baseMs,
     remainingReserveMs: config.reserveMs,
     timeoutCount: 0,
+    connectionStatus: 'Connected',
+    graceDeadline: null,
   };
   return [...seats, assignment].sort((a, b) => a.seatIndex - b.seatIndex);
 }

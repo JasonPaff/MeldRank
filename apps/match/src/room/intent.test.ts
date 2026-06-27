@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SINGLE_DECK_PARTNERS } from '@meldrank/shared';
 import type { FilteredView } from '@meldrank/engine';
-import { createRoomCore, joinRoom, submitContribution, submitIntent } from './core';
+import { createRoomCore, expireGrace, joinRoom, leaveRoom, submitContribution, submitIntent } from './core';
 import { DEFAULT_CLOCK_CONFIG } from './clock';
 import { seatForConnection } from './seating';
 import type { Clock, Effect, RoomCoreState, ServerSeedSource } from './types';
@@ -119,6 +119,24 @@ describe('authoritative intent loop', () => {
     // Four recipients (accept + three views), each with its own distinct hand.
     expect(hands).toHaveLength(SINGLE_DECK_PARTNERS.seating.playerCount);
     expect(new Set(hands).size).toBe(hands.length);
+  });
+
+  it('rejects intents once the match has resolved (capability match-disconnect-abandonment)', () => {
+    const seed = fixedSeeder();
+    let state = createRoomCore(SINGLE_DECK_PARTNERS, { ranked: true });
+    const count = SINGLE_DECK_PARTNERS.seating.playerCount;
+    for (let i = 0; i < count; i++) state = joinRoom(state, `conn-${i}`, seed, clock).state;
+    for (let i = 0; i < count; i++) state = submitContribution(state, `conn-${i}`, clientSeed(i), clock).state;
+
+    // Forfeit the match via a grace expiry, then attempt a move on the resolved room.
+    const dropped = leaveRoom(state, connFor(state, 0), () => 0).state;
+    const resolved = expireGrace(dropped, 0, () => DEFAULT_CLOCK_CONFIG.reconnectGraceMs, seed).state;
+    expect(resolved.resolution).not.toBeNull();
+
+    const actor = resolved.engine!.public.seatToAct!;
+    const result = submitIntent(resolved, connFor(resolved, actor), { type: 'bid', seat: actor, value: 250 }, 'corr-resolved', seed, clock);
+    expect(result.state).toBe(resolved); // nothing applied
+    expect(result.effects[0]).toMatchObject({ kind: 'reject', reason: 'room-not-live' });
   });
 
   it('sends a full view to a newly seated connection on join', () => {

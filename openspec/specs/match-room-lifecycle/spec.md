@@ -24,7 +24,7 @@ The Match Service SHALL host exactly one authoritative `@meldrank/engine` `State
 
 ### Requirement: Room lifecycle state machine
 
-The room SHALL progress through the states `Reserved → Filling → Live → Complete → Persisted → Disposed`, advancing only along that ordered path. `Reserved` is the created-but-unseated room; `Filling` accepts seat joins until the variant's seat count is reached; `Live` runs the per-hand loop; `Complete` is entered when the engine reports the match complete; `Persisted` is a placeholder transition that performs no durable write in this slice; `Disposed` tears the room down. Illegal state transitions SHALL be rejected.
+The room SHALL progress through the states `Reserved → Filling → Live → Complete → Persisted → Disposed`, advancing only along that ordered path. `Reserved` is the created-but-unseated room; `Filling` accepts seat joins until the variant's seat count is reached; `Live` runs the per-hand loop; `Complete` is entered when the engine reports the match complete **or** when an abandonment resolution (forfeit or abort, capability `match-disconnect-abandonment`) terminates the match early, in which case the room carries the resolution reason and per-seat outcomes through the run-out; `Persisted` is a placeholder transition that performs no durable write in this slice; `Disposed` tears the room down. Illegal state transitions SHALL be rejected.
 
 #### Scenario: Room fills then goes live
 
@@ -37,6 +37,12 @@ The room SHALL progress through the states `Reserved → Filling → Live → Co
 - **WHEN** the engine reports the match complete during the per-hand loop
 - **THEN** the room enters `Complete`, then `Persisted`, then `Disposed`
 - **AND** the `Persisted` transition writes nothing durable in this slice
+
+#### Scenario: Abandonment resolution advances toward disposal
+
+- **WHEN** an abandonment resolution (forfeit or abort) terminates a `Live` match
+- **THEN** the room enters `Complete`, then `Persisted`, then `Disposed`
+- **AND** carries the resolution reason and per-seat outcomes through the run-out
 
 #### Scenario: Out-of-order transition is rejected
 
@@ -75,7 +81,7 @@ The room SHALL assign each joining connection a stable seat index for the durati
 
 ### Requirement: Room disposal
 
-The room SHALL release its resources and stop accepting messages once it reaches `Disposed`. A room that never fills (no terminal completion) is permitted to dispose, but durable persistence and abandonment handling are out of scope for this slice.
+The room SHALL release its resources and stop accepting messages once it reaches `Disposed`. A room that never fills (no terminal completion) is permitted to dispose. Abandonment handling is governed by capability `match-disconnect-abandonment`; durable persistence remains out of scope for this slice.
 
 #### Scenario: Disposed room rejects further messages
 

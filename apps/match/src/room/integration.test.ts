@@ -217,7 +217,7 @@ describe('clock expiry → engine timeout policy', () => {
     return state;
   }
 
-  it('emits the abandonment signal when a ranked seat crosses the timeout threshold', () => {
+  it('emits the abandonment signal and forfeits when a ranked seat crosses the timeout threshold', () => {
     const seed = fixedSeeder();
     const state = bootRanked(seed, true, 1); // threshold 1 → the first timeout crosses it
     const actor = state.engine!.public.seatToAct!;
@@ -228,9 +228,12 @@ describe('clock expiry → engine timeout policy', () => {
     expect(signal).toBeDefined();
     expect(signal!.seat).toBe(actor);
     expect(signal!.timeoutCount).toBe(1);
-    // The signal does not act on the seat — play continues, the seat remains seated.
-    expect(result.state.seats.some((s) => s.seatIndex === actor)).toBe(true);
-    expect(result.state.engine!.public.phase).toBe('Auction');
+    // The signal now drives a timeout_abandon forfeit (the seat is treated as a leaver,
+    // not granted another forced move): the match resolves and runs out to Persisted.
+    expect(result.state.resolution!.reason).toBe('timeout_abandon');
+    expect(result.state.resolution!.outcomes.find((o) => o.seat === actor)!.outcome).toBe('abandoner_loss');
+    expect(result.effects.some((e) => e.kind === 'abandonEvent')).toBe(true);
+    expect(result.state.lifecycle).toBe('Persisted');
   });
 
   it('does not emit the signal below the ranked threshold', () => {

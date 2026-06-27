@@ -10,15 +10,17 @@ import type { ClockConfig, SeatClock } from './types';
 
 /**
  * The locked default move-clock profile (design D6): a 20s per-move base allotment
- * backed by a 90s non-refilling reserve, a 10s contribution window, and a 3-timeout
- * abandonment threshold. Ranked and casual share this today; the config seam exists
- * so a future change can diverge them without touching specs or core logic.
+ * backed by a 90s non-refilling reserve, a 10s contribution window, a 3-timeout
+ * abandonment threshold, and a 90s reconnection grace window (design D3). Ranked and
+ * casual share this today; the config seam exists so a future change can diverge them
+ * without touching specs or core logic.
  */
 export const DEFAULT_CLOCK_CONFIG: ClockConfig = {
   baseMs: 20_000,
   reserveMs: 90_000,
   contributionWindowMs: 10_000,
   timeoutAbandonThreshold: 3,
+  reconnectGraceMs: 90_000,
 };
 
 /**

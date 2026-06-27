@@ -7,15 +7,19 @@ import {
   createRoomCore,
   disposeRoom,
   expireClock,
+  expireGrace,
   joinRoom,
   leaveRoom,
   pendingDeadline,
+  reconnect,
   submitContribution,
   submitIntent,
   type Clock,
   type Effect,
   type PlayerIntent,
+  type ResolutionReason,
   type RoomCoreState,
+  type SeatOutcome,
   type ServerSeedSource,
   type StepResult,
 } from '../room';
@@ -71,6 +75,7 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
     state.clockDeadline = -1;
     for (let seat = 0; seat < variant.seating.playerCount; seat++) {
       state.occupancy.push(false);
+      state.seatStatus.push('Empty');
     }
     this.setState(state);
 
@@ -91,8 +96,33 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
     this.run(result);
   }
 
-  override onLeave(client: Client): void {
-    this.run(leaveRoom(this.core, client.sessionId));
+  /**
+   * Handle a connection drop (task 4.1; capability `match-disconnect-abandonment`).
+   * Pre-`Live`, `leaveRoom` frees the seat. While `Live`, `leaveRoom` marks the seat
+   * `Disconnected` and stamps its grace deadline (the adapter's timer now also tracks
+   * grace), then we hold the seat open with Colyseus `allowReconnection` for the
+   * configured grace window: a successful return runs `reconnect` (token-keyed,
+   * carrying the new session id) to restore and resync the seat; a rejected/expired
+   * reconnection is left to the grace timer, which fires `expireGrace` to resolve it.
+   */
+  override async onLeave(client: Client): Promise<void> {
+    const wasLive = this.core.lifecycle === 'Live';
+    // The seat's stable token (the join-time identity) survives the drop — capture it
+    // before `leaveRoom` so the reconnected client can reclaim the same seat index.
+    const token = this.core.seats.find((seat) => seat.connectionId === client.sessionId)?.token;
+    this.run(leaveRoom(this.core, client.sessionId, this.now));
+
+    if (!wasLive || token === undefined) {
+      return;
+    }
+
+    const graceSeconds = this.core.config.reconnectGraceMs / 1000;
+    try {
+      const reconnected = await this.allowReconnection(client, graceSeconds);
+      this.run(reconnect(this.core, token, reconnected.sessionId, this.now));
+    } catch {
+      // Reconnection window elapsed or was rejected: the grace timer drives resolution.
+    }
   }
 
   override onDispose(): void {
@@ -136,18 +166,43 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
     this.deadlineTimer = this.clock.setTimeout(() => {
       this.deadlineTimer = undefined;
       // Recompute against the injected `now`: the core re-guards the deadline, so a
-      // slightly-late or slightly-early fire still charges/closes correctly (design D3).
-      const step = pending.kind === 'turn' ? expireClock(this.core, this.now, serverSeed) : closeContributionWindow(this.core, this.now);
-      this.run(step);
+      // slightly-late or slightly-early fire still charges/closes/resolves correctly
+      // (design D2/D3). Dispatch by the pending deadline's kind — `'grace'` carries the
+      // disconnected seat whose reconnection window expired.
+      this.run(this.fireDeadline(pending));
     }, delay);
+  }
+
+  /** Dispatch a fired pending deadline to its core entrypoint (design D2). */
+  private fireDeadline(pending: NonNullable<ReturnType<typeof pendingDeadline>>): StepResult {
+    switch (pending.kind) {
+      case 'turn':
+        return expireClock(this.core, this.now, serverSeed);
+      case 'contribution':
+        return closeContributionWindow(this.core, this.now);
+      case 'grace':
+        return expireGrace(this.core, pending.seat!, this.now, serverSeed);
+    }
   }
 
   /** Translate one effect into a send to its addressed connection (or a server signal). */
   private emit(effect: Effect): void {
-    if (effect.kind === 'abandonmentSignal') {
-      // Slice #4 wires the real consumer; for now it is a logged/published signal.
-      this.onAbandonmentSignal(effect.seat, effect.timeoutCount);
-      return;
+    // Server-side signals carry no per-connection payload: they are forwarded to their
+    // stubbed consumers (slices #5/#6 and the Anti-Cheat & Moderation leaver-penalty
+    // layer) rather than sent to a client.
+    switch (effect.kind) {
+      case 'abandonmentSignal':
+        this.onAbandonmentSignal(effect.seat, effect.timeoutCount);
+        return;
+      case 'abandonResolution':
+        this.onAbandonResolution(effect.reason, effect.outcomes);
+        return;
+      case 'abandonEvent':
+        this.onAbandonEvent(effect.seat, effect.reason);
+        return;
+      case 'botTakeoverRequested':
+        this.onBotTakeoverRequested(effect.seat);
+        return;
     }
     const client = this.findClient(effect.connectionId);
     if (client === undefined) {
@@ -176,12 +231,39 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
   }
 
   /**
-   * Forward a repeated-timeout abandonment signal (design D7). This slice only logs
-   * it; the disconnect/reconnect/abandonment slice (#4) replaces this with the real
-   * forfeit/substitution consumer.
+   * Forward a repeated-timeout abandonment signal (design D7). This slice now also
+   * resolves the ranked forfeit in the core; this hook remains the signal forwarder for
+   * the leaver-penalty layer, logged until that consumer lands.
    */
   private onAbandonmentSignal(seat: number, timeoutCount: number): void {
     console.warn(`[MatchRoom ${this.roomId}] abandonment signal: seat ${seat} reached ${timeoutCount} timeouts`);
+  }
+
+  /**
+   * Forward the terminal abandonment resolution (design D5/D9). Slice #6 replaces this
+   * with the real persistence + result-emission consumer; for now it is logged.
+   */
+  private onAbandonResolution(reason: ResolutionReason, outcomes: readonly SeatOutcome[]): void {
+    const summary = outcomes.map((o) => `${o.seat}:${o.outcome}`).join(', ');
+    console.warn(`[MatchRoom ${this.roomId}] abandonment resolution: ${reason} (${summary})`);
+  }
+
+  /**
+   * Forward the abandon event to the leaver-penalty layer (capability
+   * `match-disconnect-abandonment`). Thresholds/cooldowns are owned by the Anti-Cheat &
+   * Moderation doc; this slice only fires the hook, logged until that consumer lands.
+   */
+  private onAbandonEvent(seat: number, reason: ResolutionReason): void {
+    console.warn(`[MatchRoom ${this.roomId}] abandon event: seat ${seat} (${reason})`);
+  }
+
+  /**
+   * Forward a casual bot-takeover request (design D8). Slice #5 (`apps/bots`) replaces
+   * this with a real bot worker joining behind the human intent interface; for now it is
+   * logged. The seat is already marked `BotControlled` in the core.
+   */
+  private onBotTakeoverRequested(seat: number): void {
+    console.warn(`[MatchRoom ${this.roomId}] bot takeover requested: seat ${seat}`);
   }
 
   private findClient(connectionId: string): Client | undefined {
@@ -200,8 +282,13 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
     // Surface the on-clock deadline for the lobby/table UI; -1 when nothing is pending.
     this.state.clockDeadline = pendingDeadline(this.core)?.at ?? -1;
     this.state.occupancy.clear();
+    this.state.seatStatus.clear();
     for (let seat = 0; seat < this.core.seatCount; seat++) {
-      this.state.occupancy.push(this.core.seats.some((assignment) => assignment.seatIndex === seat));
+      const assignment = this.core.seats.find((a) => a.seatIndex === seat);
+      this.state.occupancy.push(assignment !== undefined);
+      // Surface a dropped/bot-held seat to the lobby/table UI (task 4.4); `'Empty'`
+      // when the seat is unfilled.
+      this.state.seatStatus.push(assignment?.connectionStatus ?? 'Empty');
     }
   }
 }

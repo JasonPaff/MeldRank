@@ -22,6 +22,16 @@ import type { PlayerIntent, VariantDefinition } from '@meldrank/shared';
 export type RoomLifecycle = 'Reserved' | 'Filling' | 'Live' | 'Complete' | 'Persisted' | 'Disposed';
 
 /**
+ * A seat's transport connection status (design D1): `Connected` is a live human,
+ * `Disconnected` is a dropped seat inside its reconnection grace window (its
+ * assignment retained so it can be reclaimed), and `BotControlled` is a casual seat
+ * whose grace expired and was handed to the stubbed bot-takeover seating contract
+ * (reclaimable by the returning human). Carried on the seat itself rather than in a
+ * parallel registry so the existing seat-indexed helpers and broadcasts carry it.
+ */
+export type SeatConnectionStatus = 'Connected' | 'Disconnected' | 'BotControlled';
+
+/**
  * A seated connection's stable assignment: its `seatIndex` (the `viewer` used for
  * every per-seat projection), the transport `connectionId`, and a **stubbed**
  * `token` standing in for real seat identity. Clerk-backed identity and
@@ -33,12 +43,19 @@ export type RoomLifecycle = 'Reserved' | 'Filling' | 'Live' | 'Complete' | 'Pers
  * `remainingReserveMs` is the non-refilling reserve bank (drawn down only once the
  * turn's base is exhausted, persisting across turns), and `timeoutCount` tallies
  * the seat's accrued clock timeouts (the basis for the abandonment signal).
+ *
+ * Disconnect/abandonment fields (design D1): `connectionStatus` tracks the seat's
+ * transport state, and `graceDeadline` is the injected-clock deadline at which a
+ * `Disconnected` seat's reconnection window expires (`null` when the seat is
+ * connected or no grace is running).
  */
 export interface SeatAssignment extends SeatClock {
   readonly seatIndex: number;
   readonly connectionId: string;
   readonly token: string;
   readonly timeoutCount: number;
+  readonly connectionStatus: SeatConnectionStatus;
+  readonly graceDeadline: number | null;
 }
 
 /**
@@ -76,6 +93,12 @@ export interface ClockConfig {
   readonly reserveMs: number;
   readonly contributionWindowMs: number;
   readonly timeoutAbandonThreshold: number;
+  /**
+   * The reconnection grace window (ms) stamped on a seat that drops while `Live`
+   * (design D3, default 90_000). Carried on the config next to the clock banks so
+   * ranked and casual profiles can diverge without a spec change.
+   */
+  readonly reconnectGraceMs: number;
 }
 
 /** A single seat's clock banks in a broadcast snapshot (spec: per-seat clock state). */
@@ -84,13 +107,51 @@ export interface SeatClockSnapshot extends SeatClock {
 }
 
 /**
- * The room's currently-pending deadline (design D3): either the acting seat's turn
- * expiry or the open contribution window's close. The adapter reads this after every
- * step to (re)arm its single wall-clock timer; `null` when nothing is on the clock.
+ * The room's currently-pending deadline (design D2/D3): the **earliest** of the
+ * acting seat's turn expiry, the open contribution window's close, and every
+ * disconnected seat's reconnection grace deadline. The adapter reads this after every
+ * step to (re)arm its single wall-clock timer; `null` when nothing is on the clock. A
+ * `'grace'` deadline carries the `seat` whose window it is, so the adapter can route
+ * the fire to `expireGrace` for that seat.
  */
 export interface PendingDeadline {
   readonly at: number;
-  readonly kind: 'turn' | 'contribution';
+  readonly kind: 'turn' | 'contribution' | 'grace';
+  /** The disconnected seat whose grace window this is (only for `kind: 'grace'`). */
+  readonly seat?: number;
+}
+
+/**
+ * Why a `Live` match terminated early through abandonment handling (design D5/D9;
+ * capability `match-disconnect-abandonment`): a single-seat forfeit on grace expiry
+ * (`forfeit_abandon`) or on crossing the ranked repeated-timeout threshold
+ * (`timeout_abandon`), or a multi-drop/crash `aborted` with no rating change.
+ */
+export type ResolutionReason = 'forfeit_abandon' | 'timeout_abandon' | 'aborted';
+
+/**
+ * A per-seat abandonment outcome **label** (design D5), not a rating number: the
+ * rating math that consumes these lives in a later slice. `abandoner_loss` is the
+ * seat that left (never softer than a played-out loss); `stranded_partner_reduced_loss`
+ * is the abandoner's protected partner; `opponent_win` is a normal win for an opposing
+ * seat; `no_result` is every seat in an aborted match (nobody charged).
+ */
+export type SeatOutcomeLabel = 'abandoner_loss' | 'stranded_partner_reduced_loss' | 'opponent_win' | 'no_result';
+
+/** A single seat's abandonment outcome (design D5). */
+export interface SeatOutcome {
+  readonly seat: number;
+  readonly outcome: SeatOutcomeLabel;
+}
+
+/**
+ * The terminal abandonment resolution carried on the room (design D9): the reason and
+ * the per-seat outcomes. Set by the resolution functions and read by a future
+ * persistence slice; `null` until the match resolves through abandonment handling.
+ */
+export interface ResolutionState {
+  readonly reason: ResolutionReason;
+  readonly outcomes: readonly SeatOutcome[];
 }
 
 /**
@@ -141,6 +202,13 @@ export interface RoomCoreState {
    * proceeds with the deterministic fallback for any absent seat.
    */
   readonly contributionDeadline: number | null;
+  /**
+   * The terminal abandonment resolution (design D9; capability
+   * `match-disconnect-abandonment`), or `null` while the match is unresolved. Set by
+   * the forfeit/abort functions and carried through the `Complete → Persisted`
+   * run-out for a downstream persistence slice; a resolved room accepts no intents.
+   */
+  readonly resolution: ResolutionState | null;
 }
 
 /**
@@ -166,9 +234,13 @@ export type JoinRejectReason = 'disposed' | 'room-full' | 'seat-occupied' | 'alr
  * `connectionId`, and the Colyseus adapter's job is to translate each into a
  * `client.send`. Per-recipient `view`/`accept`/`reject`/`clockState` effects carry
  * the recipient's own payload computed at send time, so the adapter never re-derives
- * or re-shares it across seats (spec: per-recipient filtered broadcast). The lone
- * exception is `abandonmentSignal`: a server-side signal identifying a seat (design
- * D7), forwarded by the adapter to slice #4's consumer rather than to a client.
+ * or re-shares it across seats (spec: per-recipient filtered broadcast). The
+ * exceptions are the **server-side signals** identifying a seat or carrying a
+ * resolution rather than a per-connection payload — `abandonmentSignal` (design
+ * D7), `abandonResolution` (the terminal result, design D5/D9), `abandonEvent` (the
+ * leaver-penalty hook), and `botTakeoverRequested` (the stubbed casual seating
+ * contract, design D8) — forwarded by the adapter to their stubbed consumers
+ * (slices #5/#6 and the Anti-Cheat doc) rather than to a client.
  */
 export type Effect =
   | { readonly kind: 'view'; readonly connectionId: string; readonly view: FilteredView }
@@ -192,7 +264,10 @@ export type Effect =
       /** Every seat's clock banks, so the table UI can render all countdowns. */
       readonly seats: readonly SeatClockSnapshot[];
     }
-  | { readonly kind: 'abandonmentSignal'; readonly seat: number; readonly timeoutCount: number };
+  | { readonly kind: 'abandonmentSignal'; readonly seat: number; readonly timeoutCount: number }
+  | { readonly kind: 'abandonResolution'; readonly reason: ResolutionReason; readonly outcomes: readonly SeatOutcome[] }
+  | { readonly kind: 'abandonEvent'; readonly seat: number; readonly reason: ResolutionReason }
+  | { readonly kind: 'botTakeoverRequested'; readonly seat: number };
 
 /** The result of any `RoomCore` step: the next state plus the effects to emit. */
 export interface StepResult {
