@@ -16,9 +16,11 @@ The Match Runtime's single most integrity-critical mechanic is hidden-informatio
 ## Capabilities
 
 ### New Capabilities
+
 - `seat-view-projector`: The pure projection from full engine `State` to a per-seat (or spectator) filtered view — the hidden-information boundary the Match Runtime enforces, expressed as engine-level types and a deterministic function.
 
 ### Modified Capabilities
+
 <!-- None. This adds a new pure projection over existing State; it does not change any existing spec's requirements. The State shape it consumes is already specified by hand-state-container. -->
 
 ## Impact

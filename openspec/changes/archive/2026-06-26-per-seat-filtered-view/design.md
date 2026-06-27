@@ -7,12 +7,14 @@ The projection is consumed by three of the engine's callers: the Match Service (
 ## Goals / Non-Goals
 
 **Goals:**
+
 - A pure, deterministic `viewFor(state, viewer)` over the existing `State`, no mutation, no new runtime dependencies.
 - A `FilteredView` type in which other seats' hands and the unrevealed widow are **structurally unrepresentable** — leakage is a compile error.
 - Resolve the three agreed edges: V1 bidder sees own buried pile; V2 expose opponent hand sizes as counts; V3 spectator view (public only).
 - Exhaustive tests that no private field leaks in any lifecycle phase.
 
 **Non-Goals:**
+
 - No Colyseus schema, networking, serialization, or patch/diff logic — that is the Match Service's job; this is the pure input to it.
 - No re-specification of `State` or the lifecycle (owned by `hand-state-container` / the engine model).
 - No authentication or seat-identity/reconnection concerns (Auth & Identity / Match Runtime).
@@ -24,7 +26,7 @@ The projection is consumed by three of the engine's callers: the Match Service (
 The projection is a pure function over `State`; the client and bots already import engine types, and the Match Service runs the engine as authority. Putting it in `shared` would invert the dependency (shared has no `State`). Alternative considered: a method on a state object — rejected; `State` is intentionally a plain JSON-round-trippable value with no behavior.
 
 **D2 — `FilteredView` is a distinct type, not a narrowed `State`.**
-Shape: `{ viewer; public: PublicState; own: OwnRegion | null; handSizes }`. `public` is `PublicState` reused verbatim. The view has **no `private` member and no `hands` array** — so there is simply no place to put another seat's cards. This is what makes hidden information *unrepresentable* rather than *omitted*. Alternative considered: reuse `State` with empty/blanked private fields — rejected, because a blanked field is still a field that can be mis-populated, defeating the compile-time guarantee.
+Shape: `{ viewer; public: PublicState; own: OwnRegion | null; handSizes }`. `public` is `PublicState` reused verbatim. The view has **no `private` member and no `hands` array** — so there is simply no place to put another seat's cards. This is what makes hidden information _unrepresentable_ rather than _omitted_. Alternative considered: reuse `State` with empty/blanked private fields — rejected, because a blanked field is still a field that can be mis-populated, defeating the compile-time guarantee.
 
 **D3 — Viewer identity is `number | null`; `null` is the spectator (V3).**
 A single function handles both seated and spectator views: a seat index yields an `own` region; `null` yields `own: null` with public + counts only. Alternative considered: a separate `spectatorView` function — rejected as duplicative; the spectator case is the seated case minus the own region.
@@ -44,6 +46,6 @@ The projection touches `state.private.hands` and `state.private.buried` only. `s
 ## Risks / Trade-offs
 
 - **A future field added to `PrivateState` could leak if the projection is naively widened** → The `FilteredView` type carries no `private` member, so new private fields are excluded by default; adding one to a view requires a deliberate, reviewable type change. Tests assert the view's keys against an allow-list to catch accidental widening.
-- **Reusing `PublicState` verbatim couples the view type to it** → Acceptable and intended: public state *is* the table-visible contract; if it changes, the view should change with it. The coupling is one-directional and explicit.
+- **Reusing `PublicState` verbatim couples the view type to it** → Acceptable and intended: public state _is_ the table-visible contract; if it changes, the view should change with it. The coupling is one-directional and explicit.
 - **Type-level guarantees are only as strong as the tests that assert them** → Add `expectTypeError`-style / `@ts-expect-error` compile-fail assertions plus runtime key-allow-list tests, exercised across every lifecycle phase so a regression in any phase is caught.
 - **Shallow vs. deep copying** → The view may share references into the immutable `State` (the engine treats `State` as immutable, and the function does not mutate). Returning references avoids needless copying; the no-mutation guarantee plus `readonly` types keeps this safe. If the Match Service later needs owned copies for serialization, that is its concern, not the projection's.

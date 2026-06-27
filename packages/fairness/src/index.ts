@@ -30,12 +30,7 @@ export { assembleSeed, fallbackContribution, type SeatContribution } from './ass
 export { rngFromSeed } from './rng';
 export { dealtResultDigest } from './digest';
 export { buildRevealBundle, type RevealBundleInput } from './build';
-export {
-  RevealBundleSchema,
-  SeatContributionRevealSchema,
-  type RevealBundle,
-  type SeatContributionReveal,
-} from './bundle';
+export { RevealBundleSchema, SeatContributionRevealSchema, type RevealBundle, type SeatContributionReveal } from './bundle';
 export { verify, type DealSpec, type VerifyResult, type VerifyFailureReason } from './verify';
 
 // Low-level encoding/hash primitives and domain tags — exported for verifiers and

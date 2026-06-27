@@ -1,6 +1,6 @@
 ## Why
 
-For a ranked pinochle ladder to be trustworthy, players must be able to verify that the deal was not rigged — that the server did not see the shuffle in advance, pick a favorable arrangement, or deal itself (or a colluder) a better hand. The engine was built for exactly this: the Dealer consumes an **injected** `Rng` stream and owns only the shuffle-and-slice algorithm, while "the *entropy* (CSPRNG keying, commit–reveal) is supplied by Match Runtime … and stays out of the zero-dependency engine" (`packages/engine/src/dealer/rng.ts`; Match Runtime — Design v1 §8). That entropy layer does not yet exist. Building it now — as a pure, isomorphic, exhaustively-tested module before any Colyseus/networking lands — keeps the integrity primitive in the pure/tested lane and makes the eventual Match Service a thin orchestrator rather than the place a fairness flaw gets introduced.
+For a ranked pinochle ladder to be trustworthy, players must be able to verify that the deal was not rigged — that the server did not see the shuffle in advance, pick a favorable arrangement, or deal itself (or a colluder) a better hand. The engine was built for exactly this: the Dealer consumes an **injected** `Rng` stream and owns only the shuffle-and-slice algorithm, while "the _entropy_ (CSPRNG keying, commit–reveal) is supplied by Match Runtime … and stays out of the zero-dependency engine" (`packages/engine/src/dealer/rng.ts`; Match Runtime — Design v1 §8). That entropy layer does not yet exist. Building it now — as a pure, isomorphic, exhaustively-tested module before any Colyseus/networking lands — keeps the integrity primitive in the pure/tested lane and makes the eventual Match Service a thin orchestrator rather than the place a fairness flaw gets introduced.
 
 ## What Changes
 
@@ -16,9 +16,11 @@ For a ranked pinochle ladder to be trustworthy, players must be able to verify t
 ## Capabilities
 
 ### New Capabilities
+
 - `provably-fair-shuffle`: The commit–reveal entropy layer — seed commitment, multi-party seed assembly, the full-width `Rng` derivation that feeds the engine Dealer, and post-hand reveal/verification — making each ranked deal independently auditable.
 
 ### Modified Capabilities
+
 <!-- None. This is purely additive and consumes the engine's already-specified Rng injection seam (dealer spec); it changes no existing requirement. -->
 
 ## Impact

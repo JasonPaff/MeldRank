@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { SINGLE_DECK_PARTNERS } from '@meldrank/shared';
 import type { FilteredView } from '@meldrank/engine';
 import { createRoomCore, joinRoom, submitContribution, submitIntent } from './core';
+import { DEFAULT_CLOCK_CONFIG } from './clock';
 import { seatForConnection } from './seating';
-import type { Effect, RoomCoreState, ServerSeedSource } from './types';
+import type { Clock, Effect, RoomCoreState, ServerSeedSource } from './types';
 
 function fixedSeeder(start = 1): ServerSeedSource {
   let n = start;
@@ -21,13 +22,22 @@ function clientSeed(seat: number): Uint8Array {
   return bytes;
 }
 
+/** A fixed clock anchored at 0; most loop assertions are time-insensitive. */
+const clock: Clock = () => 0;
+
+/** A clock returning whatever `set` was last assigned — drives charge-over-turns. */
+function mutableClock(): { clock: Clock; set: (t: number) => void } {
+  let t = 0;
+  return { clock: () => t, set: (next) => (t = next) };
+}
+
 /** A Live Partners room with a hand dealt and resting at Auction. */
-function dealtPartners(): { state: RoomCoreState; seed: ServerSeedSource } {
+function dealtPartners(c: Clock = clock): { state: RoomCoreState; seed: ServerSeedSource } {
   const seed = fixedSeeder();
   let state = createRoomCore(SINGLE_DECK_PARTNERS);
   const count = SINGLE_DECK_PARTNERS.seating.playerCount;
-  for (let i = 0; i < count; i++) state = joinRoom(state, `conn-${i}`, seed).state;
-  for (let i = 0; i < count; i++) state = submitContribution(state, `conn-${i}`, clientSeed(i)).state;
+  for (let i = 0; i < count; i++) state = joinRoom(state, `conn-${i}`, seed, c).state;
+  for (let i = 0; i < count; i++) state = submitContribution(state, `conn-${i}`, clientSeed(i), c).state;
   return { state, seed };
 }
 
@@ -46,7 +56,7 @@ describe('authoritative intent loop', () => {
     const actor = state.engine!.public.seatToAct!;
     const conn = connFor(state, actor);
 
-    const result = submitIntent(state, conn, { type: 'bid', seat: actor, value: 250 }, 'corr-1', seed);
+    const result = submitIntent(state, conn, { type: 'bid', seat: actor, value: 250 }, 'corr-1', seed, clock);
 
     // Engine advanced (auction recorded the bid; turn moved on).
     expect(result.state.engine).not.toBe(state.engine);
@@ -65,7 +75,7 @@ describe('authoritative intent loop', () => {
     const conn = connFor(state, actor);
 
     // 255 is off the bid increment grid → the engine rejects it.
-    const result = submitIntent(state, conn, { type: 'bid', seat: actor, value: 255 }, 'corr-2', seed);
+    const result = submitIntent(state, conn, { type: 'bid', seat: actor, value: 255 }, 'corr-2', seed, clock);
 
     expect(result.state).toBe(state); // unchanged
     expect(result.effects).toHaveLength(1);
@@ -80,7 +90,7 @@ describe('authoritative intent loop', () => {
     const conn = connFor(state, actor);
     const otherSeat = (actor + 1) % SINGLE_DECK_PARTNERS.seating.playerCount;
 
-    const result = submitIntent(state, conn, { type: 'bid', seat: otherSeat, value: 250 }, 'corr-3', seed);
+    const result = submitIntent(state, conn, { type: 'bid', seat: otherSeat, value: 250 }, 'corr-3', seed, clock);
     expect(result.state).toBe(state);
     expect(result.effects[0]).toMatchObject({ kind: 'reject', reason: 'not-your-seat' });
   });
@@ -91,7 +101,7 @@ describe('authoritative intent loop', () => {
     const offTurnSeat = (actor + 1) % SINGLE_DECK_PARTNERS.seating.playerCount;
     const offTurnConn = connFor(state, offTurnSeat);
 
-    const result = submitIntent(state, offTurnConn, { type: 'bid', seat: offTurnSeat, value: 250 }, 'corr-4', seed);
+    const result = submitIntent(state, offTurnConn, { type: 'bid', seat: offTurnSeat, value: 250 }, 'corr-4', seed, clock);
     expect(result.state).toBe(state);
     expect(result.effects[0]).toMatchObject({ kind: 'reject', reason: 'out-of-turn' });
   });
@@ -100,7 +110,7 @@ describe('authoritative intent loop', () => {
     const { state, seed } = dealtPartners();
     const actor = state.engine!.public.seatToAct!;
     const conn = connFor(state, actor);
-    const result = submitIntent(state, conn, { type: 'bid', seat: actor, value: 250 }, 'corr-5', seed);
+    const result = submitIntent(state, conn, { type: 'bid', seat: actor, value: 250 }, 'corr-5', seed, clock);
 
     const hands = result.effects
       .map(viewOf)
@@ -114,9 +124,66 @@ describe('authoritative intent loop', () => {
   it('sends a full view to a newly seated connection on join', () => {
     const seed = fixedSeeder();
     const state = createRoomCore(SINGLE_DECK_PARTNERS);
-    const join = joinRoom(state, 'conn-0', seed);
+    const join = joinRoom(state, 'conn-0', seed, clock);
     const view = join.effects.find((e) => e.kind === 'view');
     expect(view).toMatchObject({ kind: 'view', connectionId: 'conn-0' });
     expect(seatForConnection(join.state, 'conn-0')).toBe(0);
+  });
+});
+
+describe('move-clock charging across turns', () => {
+  const config = DEFAULT_CLOCK_CONFIG;
+  const playerCount = SINGLE_DECK_PARTNERS.seating.playerCount;
+
+  it('charges the acting seat its elapsed base time and grants the next seat a fresh base', () => {
+    const m = mutableClock();
+    m.set(1_000);
+    const { state, seed } = dealtPartners(m.clock); // deal stamps turnStartedAt = 1000
+    expect(state.turnStartedAt).toBe(1_000);
+    const actor = state.engine!.public.seatToAct!;
+    const conn = connFor(state, actor);
+
+    // The actor holds the turn for 5s before bidding.
+    m.set(6_000);
+    const result = submitIntent(state, conn, { type: 'bid', seat: actor, value: 250 }, 'k', seed, m.clock);
+
+    const actorClock = result.state.seats.find((s) => s.seatIndex === actor)!;
+    expect(actorClock.remainingBaseMs).toBe(config.baseMs - 5_000); // 5s off base
+    expect(actorClock.remainingReserveMs).toBe(config.reserveMs); // reserve untouched
+
+    const nextActor = result.state.engine!.public.seatToAct!;
+    expect(nextActor).not.toBe(actor);
+    const nextClock = result.state.seats.find((s) => s.seatIndex === nextActor)!;
+    expect(nextClock.remainingBaseMs).toBe(config.baseMs); // fresh base
+    expect(result.state.turnStartedAt).toBe(6_000); // new turn stamped
+  });
+
+  it('overflows a turn longer than the base into the reserve bank', () => {
+    const m = mutableClock();
+    m.set(0);
+    const { state, seed } = dealtPartners(m.clock); // turnStartedAt = 0
+    const actor = state.engine!.public.seatToAct!;
+    const conn = connFor(state, actor);
+
+    m.set(config.baseMs + 4_000); // 4s past the base allotment
+    const result = submitIntent(state, conn, { type: 'bid', seat: actor, value: 250 }, 'k', seed, m.clock);
+
+    const actorClock = result.state.seats.find((s) => s.seatIndex === actor)!;
+    expect(actorClock.remainingBaseMs).toBe(0);
+    expect(actorClock.remainingReserveMs).toBe(config.reserveMs - 4_000);
+  });
+
+  it('broadcasts per-seat clock state carrying the acting seat, deadline, and all banks', () => {
+    const { state, seed } = dealtPartners();
+    const actor = state.engine!.public.seatToAct!;
+    const conn = connFor(state, actor);
+    const result = submitIntent(state, conn, { type: 'bid', seat: actor, value: 250 }, 'k', seed, clock);
+
+    const clockEffects = result.effects.filter((e): e is Extract<Effect, { kind: 'clockState' }> => e.kind === 'clockState');
+    expect(clockEffects).toHaveLength(playerCount); // one per seated connection
+    const sample = clockEffects[0]!;
+    expect(sample.actingSeat).toBe(result.state.engine!.public.seatToAct);
+    expect(sample.deadline).not.toBeNull();
+    expect(sample.seats).toHaveLength(playerCount);
   });
 });

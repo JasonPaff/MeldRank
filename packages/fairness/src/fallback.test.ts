@@ -52,12 +52,7 @@ describe('a hand with a substituted seat still assembles and deals reproducibly'
 
   it('matches an assembly where the absent seat is supplied as its explicit fallback', () => {
     const viaGap = assembleSeed(SERVER, 7, present, 3);
-    const viaExplicit = assembleSeed(
-      SERVER,
-      7,
-      [...present, { seat: 1, clientSeed: fallbackContribution(SERVER, 1) }],
-      3,
-    );
+    const viaExplicit = assembleSeed(SERVER, 7, [...present, { seat: 1, clientSeed: fallbackContribution(SERVER, 1) }], 3);
     expect(toHex(viaGap)).toBe(toHex(viaExplicit));
   });
 });

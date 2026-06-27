@@ -15,14 +15,7 @@ import type { RoomLifecycle } from './types';
  */
 
 /** The ordered lifecycle path; index gives each state its position. */
-export const LIFECYCLE_ORDER: readonly RoomLifecycle[] = [
-  'Reserved',
-  'Filling',
-  'Live',
-  'Complete',
-  'Persisted',
-  'Disposed',
-] as const;
+export const LIFECYCLE_ORDER: readonly RoomLifecycle[] = ['Reserved', 'Filling', 'Live', 'Complete', 'Persisted', 'Disposed'] as const;
 
 /** The states from which early disposal (never having gone `Live`) is permitted. */
 const PRE_LIVE_STATES: ReadonlySet<RoomLifecycle> = new Set<RoomLifecycle>(['Reserved', 'Filling']);

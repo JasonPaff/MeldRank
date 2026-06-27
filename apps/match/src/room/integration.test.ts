@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { SINGLE_DECK_PARTNERS, type VariantDefinition } from '@meldrank/shared';
 import { LegalPlayValidator, type State } from '@meldrank/engine';
-import { createRoomCore, disposeRoom, joinRoom, submitContribution, submitIntent } from './core';
-import type { Effect, PlayerIntent, RoomCoreState, ServerSeedSource, StepResult } from './types';
+import { createRoomCore, disposeRoom, expireClock, joinRoom, submitContribution, submitIntent } from './core';
+import { DEFAULT_CLOCK_CONFIG } from './clock';
+import type { Clock, Effect, PlayerIntent, RoomCoreState, ServerSeedSource, StepResult } from './types';
 
 /**
  * End-to-end: boot `RoomCore` in-process, fill the seats, run the provably-fair
@@ -32,15 +33,21 @@ function connFor(state: RoomCoreState, seat: number): string {
   return state.seats.find((s) => s.seatIndex === seat)!.connectionId;
 }
 
+/** A fixed clock anchored at 0; the deal stamps the first turn at t = 0. */
+const clock: Clock = () => 0;
+
+/** A clock far past any deadline, to force a clock expiry on demand. */
+const expiredClock: Clock = () => 1_000_000;
+
 /** Fill every seat and run the handshake so a hand is dealt; returns the dealt
  *  state plus the effects from the deal broadcast. */
 function bootAndDeal(variant: VariantDefinition, seed: ServerSeedSource): { state: RoomCoreState; dealEffects: readonly Effect[] } {
   let state = createRoomCore(variant);
   const count = variant.seating.playerCount;
-  for (let i = 0; i < count; i++) state = joinRoom(state, `conn-${i}`, seed).state;
+  for (let i = 0; i < count; i++) state = joinRoom(state, `conn-${i}`, seed, clock).state;
   let dealEffects: readonly Effect[] = [];
   for (let i = 0; i < count; i++) {
-    const step = submitContribution(state, `conn-${i}`, clientSeed(i));
+    const step = submitContribution(state, `conn-${i}`, clientSeed(i), clock);
     state = step.state;
     if (step.effects.length > 0) dealEffects = step.effects;
   }
@@ -107,13 +114,143 @@ function playOneHand(start: RoomCoreState, seed: ServerSeedSource, variant: Vari
       intent = { type: 'playCard', seat: actorSeat, card: { rank: card.rank, suit: card.suit, copyIndex: card.copyIndex } };
     }
 
-    const step = submitIntent(state, connFor(state, actorSeat), intent, `c-${guard}`, seed);
+    const step = submitIntent(state, connFor(state, actorSeat), intent, `c-${guard}`, seed, clock);
     expect(step.state).not.toBe(state); // every driven move must make progress
     last = step;
     state = step.state;
   }
   return { state, last };
 }
+
+/** Drive auction + declare so the room rests at `TrickPlay` with a seat on the clock. */
+function driveToTrickPlay(start: RoomCoreState, seed: ServerSeedSource, variant: VariantDefinition): RoomCoreState {
+  let state = start;
+  let bidPlaced = false;
+  for (let guard = 0; guard < 1000; guard++) {
+    const engine = state.engine!;
+    const phase = engine.public.phase;
+    if (phase === 'TrickPlay') {
+      return state;
+    }
+    let actorSeat: number;
+    let intent: PlayerIntent;
+    if (phase === 'Auction') {
+      actorSeat = engine.public.seatToAct!;
+      if (!bidPlaced) {
+        intent = { type: 'bid', seat: actorSeat, value: variant.bidding.minimumBid };
+        bidPlaced = true;
+      } else {
+        intent = { type: 'pass', seat: actorSeat };
+      }
+    } else if (phase === 'DeclareTrump') {
+      actorSeat = engine.public.contract!.seatIndex;
+      intent = { type: 'declareTrump', seat: actorSeat, trump: variant.deck.suits[0]! };
+    } else {
+      break;
+    }
+    state = submitIntent(state, connFor(state, actorSeat), intent, `t-${guard}`, seed, clock).state;
+  }
+  return state;
+}
+
+describe('clock expiry → engine timeout policy', () => {
+  const playerCount = SINGLE_DECK_PARTNERS.seating.playerCount;
+
+  it('auction timeout forces a pass through the same advance/broadcast loop', () => {
+    const seed = fixedSeeder();
+    const { state } = bootAndDeal(SINGLE_DECK_PARTNERS, seed);
+    expect(state.engine!.public.phase).toBe('Auction');
+    const actor = state.engine!.public.seatToAct!;
+
+    const result = expireClock(state, expiredClock, seed);
+
+    // The engine advanced (a forced pass was applied) and the turn moved on.
+    expect(result.state.engine).not.toBe(state.engine);
+    expect(result.state.engine!.public.seatToAct).not.toBe(actor);
+    // A pass records no contract — confirming it was a pass, not a bid.
+    expect(result.state.engine!.public.contract).toBeNull();
+    // The timed-out seat's banks are fully spent.
+    const timedOut = result.state.seats.find((s) => s.seatIndex === actor)!;
+    expect(timedOut.remainingBaseMs).toBe(0);
+    expect(timedOut.remainingReserveMs).toBe(0);
+    expect(timedOut.timeoutCount).toBe(1);
+    // Same per-recipient broadcast path as a player move: one view per seat.
+    expect(result.effects.filter((e) => e.kind === 'view')).toHaveLength(playerCount);
+  });
+
+  it('trick-play timeout auto-plays a legal card through the same loop', () => {
+    const seed = fixedSeeder();
+    const { state } = bootAndDeal(SINGLE_DECK_PARTNERS, seed);
+    const inTrickPlay = driveToTrickPlay(state, seed, SINGLE_DECK_PARTNERS);
+    expect(inTrickPlay.engine!.public.phase).toBe('TrickPlay');
+    const actor = inTrickPlay.engine!.public.seatToAct!;
+    const handBefore = inTrickPlay.engine!.private.hands[actor]!.cards.length;
+
+    const result = expireClock(inTrickPlay, expiredClock, seed);
+
+    // A card was forced: the acting seat's hand shrank by exactly one.
+    expect(result.state.engine!.private.hands[actor]!.cards.length).toBe(handBefore - 1);
+    const timedOut = result.state.seats.find((s) => s.seatIndex === actor)!;
+    expect(timedOut.remainingBaseMs).toBe(0);
+    expect(timedOut.remainingReserveMs).toBe(0);
+    // Forced move uses the identical per-recipient broadcast: each seat gets its own view.
+    const views = result.effects.filter((e): e is Extract<Effect, { kind: 'view' }> => e.kind === 'view');
+    expect(views).toHaveLength(playerCount);
+    const ownHands = views.map((v) => JSON.stringify(v.view.own?.hand ?? []));
+    expect(new Set(ownHands).size).toBe(ownHands.length); // distinct per seat
+  });
+
+  it('is a no-op when the deadline has not yet passed', () => {
+    const seed = fixedSeeder();
+    const { state } = bootAndDeal(SINGLE_DECK_PARTNERS, seed);
+    // turnStartedAt = 0 and base+reserve unspent → deadline is well in the future.
+    const early = expireClock(state, () => 1, seed);
+    expect(early.state).toBe(state);
+    expect(early.effects).toHaveLength(0);
+  });
+
+  /** Boot a ranked/casual room with a given abandonment threshold, dealt to Auction. */
+  function bootRanked(seed: ServerSeedSource, ranked: boolean, threshold: number): RoomCoreState {
+    let state = createRoomCore(SINGLE_DECK_PARTNERS, { ranked, clock: { ...DEFAULT_CLOCK_CONFIG, timeoutAbandonThreshold: threshold } });
+    for (let i = 0; i < playerCount; i++) state = joinRoom(state, `conn-${i}`, seed, clock).state;
+    for (let i = 0; i < playerCount; i++) state = submitContribution(state, `conn-${i}`, clientSeed(i), clock).state;
+    return state;
+  }
+
+  it('emits the abandonment signal when a ranked seat crosses the timeout threshold', () => {
+    const seed = fixedSeeder();
+    const state = bootRanked(seed, true, 1); // threshold 1 → the first timeout crosses it
+    const actor = state.engine!.public.seatToAct!;
+
+    const result = expireClock(state, expiredClock, seed);
+
+    const signal = result.effects.find((e): e is Extract<Effect, { kind: 'abandonmentSignal' }> => e.kind === 'abandonmentSignal');
+    expect(signal).toBeDefined();
+    expect(signal!.seat).toBe(actor);
+    expect(signal!.timeoutCount).toBe(1);
+    // The signal does not act on the seat — play continues, the seat remains seated.
+    expect(result.state.seats.some((s) => s.seatIndex === actor)).toBe(true);
+    expect(result.state.engine!.public.phase).toBe('Auction');
+  });
+
+  it('does not emit the signal below the ranked threshold', () => {
+    const seed = fixedSeeder();
+    const state = bootRanked(seed, true, 3); // a single timeout stays under the threshold
+    const result = expireClock(state, expiredClock, seed);
+    expect(result.effects.some((e) => e.kind === 'abandonmentSignal')).toBe(false);
+  });
+
+  it('counts timeouts but never emits the signal in a casual room', () => {
+    const seed = fixedSeeder();
+    const state = bootRanked(seed, false, 1); // casual, threshold reachable — still no signal
+    const actor = state.engine!.public.seatToAct!;
+    const result = expireClock(state, expiredClock, seed);
+
+    expect(result.effects.some((e) => e.kind === 'abandonmentSignal')).toBe(false);
+    // The timeout is still tallied (per the open-question default: count, never signal).
+    expect(result.state.seats.find((s) => s.seatIndex === actor)!.timeoutCount).toBe(1);
+  });
+});
 
 describe('match room — end to end', () => {
   it('deals via the handshake with no hidden information in any seat view', () => {

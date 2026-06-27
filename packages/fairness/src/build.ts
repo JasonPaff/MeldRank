@@ -38,11 +38,7 @@ export function buildRevealBundle(input: RevealBundleInput): RevealBundle {
   const revealed: SeatContributionReveal[] = [];
   for (let seat = 0; seat < seatCount; seat++) {
     const clientSeed = suppliedBySeat.get(seat);
-    revealed.push(
-      clientSeed === undefined
-        ? { seat, substituted: true }
-        : { seat, substituted: false, clientSeed: toHex(clientSeed) },
-    );
+    revealed.push(clientSeed === undefined ? { seat, substituted: true } : { seat, substituted: false, clientSeed: toHex(clientSeed) });
   }
 
   return {

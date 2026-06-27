@@ -10,16 +10,26 @@ export {
   leaveRoom,
   submitContribution,
   submitIntent,
+  expireClock,
+  closeContributionWindow,
+  pendingDeadline,
   disposeRoom,
+  type CreateRoomOptions,
 } from './core';
+export { chargeElapsed, deadlineFor, grantBase, DEFAULT_CLOCK_CONFIG } from './clock';
 export { isLegalRoomTransition, advanceLifecycle, LIFECYCLE_ORDER } from './lifecycle';
 export { seatForConnection, isFull, lowestFreeSeat } from './seating';
 export type {
   RoomLifecycle,
   RoomCoreState,
   SeatAssignment,
+  SeatClock,
   HandshakeContext,
   ServerSeedSource,
+  Clock,
+  ClockConfig,
+  SeatClockSnapshot,
+  PendingDeadline,
   Effect,
   StepResult,
   JoinResult,

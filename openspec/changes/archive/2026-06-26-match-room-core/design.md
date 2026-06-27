@@ -7,6 +7,7 @@ The defining constraint, from Match Runtime — Design v1 §4 and the locked Tec
 ## Goals / Non-Goals
 
 **Goals:**
+
 - Stand up a real Colyseus room hosting one authoritative engine `State` per table.
 - Implement the room lifecycle `Reserved → Filling → Live → Complete → Persisted → Disposed` and the per-hand deal loop.
 - Implement the authoritative `validate → apply → advance → broadcast` intent loop with per-recipient `viewFor` projection at send time.
@@ -15,6 +16,7 @@ The defining constraint, from Match Runtime — Design v1 §4 and the locked Tec
 - Keep the lifecycle + intent logic **pure and unit-testable**, with Colyseus as a thin transport adapter.
 
 **Non-Goals (later slices — do not build here):**
+
 - Move clocks/timers (#3), disconnect/reconnect/abandonment (#4), bots-in-room (#5).
 - Durable persistence + result emission to Postgres/Redis (#6): the `Persisted` transition is inert.
 - Clerk-backed identity and reconnection tokens (seat identity is a stub token).
@@ -25,27 +27,32 @@ The defining constraint, from Match Runtime — Design v1 §4 and the locked Tec
 ### D1: Keep authoritative engine `State` server-side; push per-seat `FilteredView` as messages — do **not** sync game state via Colyseus schema
 
 Colyseus's headline feature is automatic state synchronization: mutate a `@colyseus/schema` room state and it diffs and broadcasts to **all** clients. That is exactly wrong here — it would leak every seat's hand to every client. So the room holds the engine `State` as a plain server-side field (it is already JSON-round-trippable by design) and sends each connection its own `viewFor(state, seat)` payload as an explicit room message. We deliberately use Colyseus for transport, room lifecycle hosting, and matchmaking — **not** for game-state replication.
-- *Alternative considered:* mirror `State` into a Colyseus schema and use per-client filtering hooks. Rejected: it fights the framework's broadcast model, and a filtering bug would silently leak hidden info — the opposite of "hidden info is unrepresentable." Explicit per-seat messages keep `viewFor` the single chokepoint.
+
+- _Alternative considered:_ mirror `State` into a Colyseus schema and use per-client filtering hooks. Rejected: it fights the framework's broadcast model, and a filtering bug would silently leak hidden info — the opposite of "hidden info is unrepresentable." Explicit per-seat messages keep `viewFor` the single chokepoint.
 - A **minimal** Colyseus schema MAY carry only non-secret room metadata (lifecycle state, seat occupancy, current `seatToAct`) for cheap presence; anything card-bearing goes through `viewFor` messages only.
 
 ### D2: A pure `RoomCore` owns lifecycle + intent loop; the Colyseus `Room` is a thin adapter
 
 Consistent with the project's pure-and-tested-first principle, the lifecycle state machine and the `validate → apply → advance → broadcast` decision logic live in a pure, dependency-free module (`apps/match/src/room/`) that takes the current room/engine state and an input and returns the next state plus a list of outbound effects (per-seat view, ack, commit broadcast). The Colyseus `Room` subclass is a thin shell that wires `onJoin`/`onMessage`/`onLeave` to `RoomCore` and performs the actual sends. This keeps the integrity-critical loop unit-testable without standing up a socket.
-- *Alternative considered:* put logic directly in the Colyseus `Room`. Rejected: couples tests to the transport and makes the move loop hard to exercise deterministically.
+
+- _Alternative considered:_ put logic directly in the Colyseus `Room`. Rejected: couples tests to the transport and makes the move loop hard to exercise deterministically.
 
 ### D3: Intents map to engine `Event`s; the engine remains the validation authority
 
 The room wraps an incoming `PlayerIntent` into the engine `Event` union and calls `reduce`. Authority checks the room owns (seat-ownership and `seatToAct`) run **before** `reduce`; all rule legality (legal play, bid legality, phase gating) is delegated to the engine, which already rejects illegal events. The room never re-implements game rules.
+
 - This means "validate" is two layers: room-level authority (is this connection allowed to act as this seat, now?) then engine-level legality (is this move legal in this state?).
 
 ### D4: Optimistic reconciliation via per-intent correlation IDs
 
-Each submitted intent carries a client-generated correlation id. The room replies with an `accept` (correlation id + the submitter's authoritative resulting view) or a `reject` (correlation id + machine-readable reason + a fresh authoritative view to resync against). Clients apply moves optimistically and reconcile on the correlated ack — roll forward on accept, roll back to the resync on reject. The authoritative broadcast to *other* seats is a separate fan-out.
-- *Alternative considered:* no correlation, clients diff against the next broadcast. Rejected: a client can't tell which of several in-flight predictions a broadcast resolves, making rollback ambiguous.
+Each submitted intent carries a client-generated correlation id. The room replies with an `accept` (correlation id + the submitter's authoritative resulting view) or a `reject` (correlation id + machine-readable reason + a fresh authoritative view to resync against). Clients apply moves optimistically and reconcile on the correlated ack — roll forward on accept, roll back to the resync on reject. The authoritative broadcast to _other_ seats is a separate fan-out.
+
+- _Alternative considered:_ no correlation, clients diff against the next broadcast. Rejected: a client can't tell which of several in-flight predictions a broadcast resolves, making rollback ambiguous.
 
 ### D5: Shuffle handshake is gated on lifecycle, not on a clock
 
-Per hand: enter the deal sub-step → `commit` and broadcast the hash → open the contribution window → assemble and deal. Because move clocks are slice #3, this slice does not impose a timed contribution deadline; the window closes when all seated connections have contributed (deterministic for tests) or, for connections that never contribute, the fairness layer's `fallbackContribution` is substituted at assembly time. The exact production policy for *when* to stop waiting without a clock is an open question (below); the integrity property (fallback yields the server no extra control) holds regardless.
+Per hand: enter the deal sub-step → `commit` and broadcast the hash → open the contribution window → assemble and deal. Because move clocks are slice #3, this slice does not impose a timed contribution deadline; the window closes when all seated connections have contributed (deterministic for tests) or, for connections that never contribute, the fairness layer's `fallbackContribution` is substituted at assembly time. The exact production policy for _when_ to stop waiting without a clock is an open question (below); the integrity property (fallback yields the server no extra control) holds regardless.
+
 - The reveal payload (revealed seeds for replay) is assembled by the fairness layer but its **emission** is deferred to persistence (#6); this slice only needs commit + contribute + assemble to drive a reproducible deal.
 
 ### D6: Colyseus + `@colyseus/schema` added at latest stable; seat identity stubbed

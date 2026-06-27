@@ -9,7 +9,7 @@ The Game Engine is complete and exhaustively unit-tested as pure functions, but 
 - Introduce the **authoritative intent loop**: for each submitted `PlayerIntent`, the room runs `validate → apply (engine reduce) → advance lifecycle → broadcast`. Illegal or out-of-turn intents are rejected without mutating state.
 - Broadcast per recipient through the engine's `viewFor` projection (#0) **at send time**, so each connection only ever receives its own legal information; the room never serializes full `State` to a client.
 - Define the **client↔room wire protocol** with optimistic-client / authoritative-server reconciliation: a submitted intent is acknowledged (accepted, with the authoritative resulting view) or rejected (with a reason and a corrective resync), letting clients apply moves optimistically and roll back on rejection.
-- Carry forward the **provably-fair shuffle handshake** (#1): before each hand's deal the room broadcasts the `commit` hash to all seats, and accepts a seat's `clientSeed` contribution only *after* the commit is published; absent contributions use the fairness layer's deterministic fallback.
+- Carry forward the **provably-fair shuffle handshake** (#1): before each hand's deal the room broadcasts the `commit` hash to all seats, and accepts a seat's `clientSeed` contribution only _after_ the commit is published; absent contributions use the fairness layer's deterministic fallback.
 - Seat identity is **stubbed** in this slice (a seat token / index); Clerk wiring and reconnection tokens are deferred to later slices.
 - Add the Colyseus runtime dependency to `apps/match` (first use of Colyseus rooms + Fly room config in the repo), at latest stable.
 
@@ -18,11 +18,13 @@ Explicitly **out of scope** (later slices, must not be built here): move clocks/
 ## Capabilities
 
 ### New Capabilities
-- `match-room-lifecycle`: The Colyseus room hosting one authoritative engine instance per table — room creation, seat filling, the `Reserved → Filling → Live → per-hand loop → Complete → Persisted → Disposed` state machine, the per-hand deal cycle, and room disposal. Bounds what a room *is* in this slice.
+
+- `match-room-lifecycle`: The Colyseus room hosting one authoritative engine instance per table — room creation, seat filling, the `Reserved → Filling → Live → per-hand loop → Complete → Persisted → Disposed` state machine, the per-hand deal cycle, and room disposal. Bounds what a room _is_ in this slice.
 - `match-intent-loop`: The server-authoritative `validate → apply → advance → broadcast` move loop, per-recipient filtered-view broadcast via `viewFor`, and the optimistic/authoritative wire protocol (intent submit, accept/reject acknowledgement, corrective resync) that clients reconcile against.
 - `match-shuffle-handshake`: The wire-level provably-fair handshake the room enforces each hand — pre-deal `commit` broadcast to all seats, seat `clientSeed` contribution accepted only after commit, deterministic fallback for absent seats — feeding the engine Dealer's `rng` seam through the `@meldrank/shared/fairness` layer.
 
 ### Modified Capabilities
+
 <!-- None. This slice consumes seat-view-projector (#0) and provably-fair-shuffle (#1) as-is; it changes no existing spec's requirements. -->
 
 ## Impact

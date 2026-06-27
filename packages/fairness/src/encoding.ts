@@ -59,9 +59,7 @@ export function lenPrefixed(bytes: Uint8Array): Uint8Array {
  * order, and client and server must agree on the endianness exactly.
  */
 export function readUint32BE(block: Uint8Array, offset: number): number {
-  return (
-    ((block[offset]! << 24) | (block[offset + 1]! << 16) | (block[offset + 2]! << 8) | block[offset + 3]!) >>> 0
-  );
+  return ((block[offset]! << 24) | (block[offset + 1]! << 16) | (block[offset + 2]! << 8) | block[offset + 3]!) >>> 0;
 }
 
 /** Length-and-content equality over byte strings, without short-circuiting per byte. */

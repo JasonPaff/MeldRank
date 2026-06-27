@@ -3,7 +3,7 @@ import { SINGLE_DECK_PARTNERS } from '@meldrank/shared';
 import { advanceLifecycle, isLegalRoomTransition } from './lifecycle';
 import { createRoomCore, disposeRoom, joinRoom, submitContribution, submitIntent } from './core';
 import { isFull, seatForConnection } from './seating';
-import type { Effect, RoomLifecycle, ServerSeedSource } from './types';
+import type { Clock, Effect, RoomLifecycle, ServerSeedSource } from './types';
 
 /** A deterministic server-seed source so the whole flow is reproducible in tests. */
 function fixedSeeder(start = 1): ServerSeedSource {
@@ -17,11 +17,14 @@ function fixedSeeder(start = 1): ServerSeedSource {
   };
 }
 
+/** A fixed injected clock; timing is irrelevant to the lifecycle assertions here. */
+const clock: Clock = () => 0;
+
 /** Fill every seat of a fresh Partners room, returning the seated state. */
 function fillPartners(seed = fixedSeeder()) {
   let state = createRoomCore(SINGLE_DECK_PARTNERS);
   for (let i = 0; i < SINGLE_DECK_PARTNERS.seating.playerCount; i++) {
-    state = joinRoom(state, `conn-${i}`, seed).state;
+    state = joinRoom(state, `conn-${i}`, seed, clock).state;
   }
   return state;
 }
@@ -65,16 +68,16 @@ describe('room construction and seating', () => {
     const seed = fixedSeeder();
     let state = createRoomCore(SINGLE_DECK_PARTNERS);
 
-    const first = joinRoom(state, 'conn-0', seed);
+    const first = joinRoom(state, 'conn-0', seed, clock);
     expect(first.state.lifecycle).toBe<RoomLifecycle>('Filling');
     expect(first.outcome).toEqual({ status: 'seated', seat: 0 });
     // The joiner receives a full resync view.
     expect(first.effects.filter((e) => e.kind === 'view')).toHaveLength(1);
     state = first.state;
 
-    state = joinRoom(state, 'conn-1', seed).state;
-    state = joinRoom(state, 'conn-2', seed).state;
-    const last = joinRoom(state, 'conn-3', seed);
+    state = joinRoom(state, 'conn-1', seed, clock).state;
+    state = joinRoom(state, 'conn-2', seed, clock).state;
+    const last = joinRoom(state, 'conn-3', seed, clock);
 
     expect(last.state.lifecycle).toBe<RoomLifecycle>('Live');
     expect(isFull(last.state)).toBe(true);
@@ -92,7 +95,7 @@ describe('room construction and seating', () => {
 
   it('rejects a join when the room is full, leaving seats unchanged', () => {
     const state = fillPartners();
-    const result = joinRoom(state, 'conn-late', fixedSeeder());
+    const result = joinRoom(state, 'conn-late', fixedSeeder(), clock);
     expect(result.outcome).toEqual({ status: 'rejected', reason: 'room-full' });
     expect(result.state.seats).toEqual(state.seats);
   });
@@ -100,16 +103,16 @@ describe('room construction and seating', () => {
   it('rejects a join onto an already-occupied seat', () => {
     const seed = fixedSeeder();
     let state = createRoomCore(SINGLE_DECK_PARTNERS);
-    state = joinRoom(state, 'conn-0', seed, 1).state;
-    const clash = joinRoom(state, 'conn-1', seed, 1);
+    state = joinRoom(state, 'conn-0', seed, clock, 1).state;
+    const clash = joinRoom(state, 'conn-1', seed, clock, 1);
     expect(clash.outcome).toEqual({ status: 'rejected', reason: 'seat-occupied' });
   });
 
   it('rejects a duplicate join from the same connection', () => {
     const seed = fixedSeeder();
     let state = createRoomCore(SINGLE_DECK_PARTNERS);
-    state = joinRoom(state, 'conn-0', seed).state;
-    const again = joinRoom(state, 'conn-0', seed);
+    state = joinRoom(state, 'conn-0', seed, clock).state;
+    const again = joinRoom(state, 'conn-0', seed, clock);
     expect(again.outcome).toEqual({ status: 'rejected', reason: 'already-seated' });
   });
 });
@@ -117,16 +120,16 @@ describe('room construction and seating', () => {
 describe('room disposal', () => {
   it('releases engine state and rejects further input once Disposed', () => {
     let state = createRoomCore(SINGLE_DECK_PARTNERS);
-    state = joinRoom(state, 'conn-0', fixedSeeder()).state; // Filling — early disposal is legal
+    state = joinRoom(state, 'conn-0', fixedSeeder(), clock).state; // Filling — early disposal is legal
     const disposed = disposeRoom(state).state;
 
     expect(disposed.lifecycle).toBe<RoomLifecycle>('Disposed');
     expect(disposed.engine).toBeNull();
 
     // No further join, intent, or contribution is accepted.
-    expect(joinRoom(disposed, 'conn-1', fixedSeeder()).outcome).toEqual({ status: 'rejected', reason: 'disposed' });
-    expect(submitIntent(disposed, 'conn-0', { type: 'pass', seat: 0 }, 'c1', fixedSeeder()).effects).toHaveLength(0);
-    expect(submitContribution(disposed, 'conn-0', new Uint8Array(32)).effects[0]).toMatchObject({
+    expect(joinRoom(disposed, 'conn-1', fixedSeeder(), clock).outcome).toEqual({ status: 'rejected', reason: 'disposed' });
+    expect(submitIntent(disposed, 'conn-0', { type: 'pass', seat: 0 }, 'c1', fixedSeeder(), clock).effects).toHaveLength(0);
+    expect(submitContribution(disposed, 'conn-0', new Uint8Array(32), clock).effects[0]).toMatchObject({
       kind: 'rejectContribution',
       reason: 'room-not-live',
     });

@@ -20,7 +20,10 @@ describe('isomorphic, pure, side-effect-free core', () => {
     // outputs — the property that lets the browser, the service, and bots agree.
     const serverA = seed(1);
     const serverB = Uint8Array.from(serverA); // distinct object, same bytes
-    const contributionsA: SeatContribution[] = [{ seat: 0, clientSeed: seed(2) }, { seat: 1, clientSeed: seed(3) }];
+    const contributionsA: SeatContribution[] = [
+      { seat: 0, clientSeed: seed(2) },
+      { seat: 1, clientSeed: seed(3) },
+    ];
     const contributionsB: SeatContribution[] = [
       { seat: 0, clientSeed: Uint8Array.from(seed(2)) },
       { seat: 1, clientSeed: Uint8Array.from(seed(3)) },
@@ -61,7 +64,13 @@ describe('isomorphic, pure, side-effect-free core', () => {
       const serverSeed = seed(5);
       const seedBytes = assembleSeed(serverSeed, 0, [{ seat: 0, clientSeed: seed(6) }], 1);
       const result = deal(SPEC.deckSpec, SPEC.handSize, SPEC.widowSize, rngFromSeed(seedBytes));
-      const bundle = buildRevealBundle({ handNonce: 0, serverSeed, contributions: [{ seat: 0, clientSeed: seed(6) }], seatCount: 1, result });
+      const bundle = buildRevealBundle({
+        handNonce: 0,
+        serverSeed,
+        contributions: [{ seat: 0, clientSeed: seed(6) }],
+        seatCount: 1,
+        result,
+      });
       expect(verify(bundle, SPEC)).toEqual({ ok: true });
     } finally {
       if (canStub) {

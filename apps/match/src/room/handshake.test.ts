@@ -3,8 +3,9 @@ import { SINGLE_DECK_PARTNERS } from '@meldrank/shared';
 import { commit } from '@meldrank/fairness';
 import { createInitialState } from '@meldrank/engine';
 import { assembleAndDeal, openHand } from './handshake';
-import { createRoomCore, joinRoom, submitContribution } from './core';
-import type { HandshakeContext, ServerSeedSource } from './types';
+import { closeContributionWindow, createRoomCore, joinRoom, submitContribution } from './core';
+import { DEFAULT_CLOCK_CONFIG } from './clock';
+import type { Clock, HandshakeContext, ServerSeedSource } from './types';
 
 function fixedSeeder(start = 1): ServerSeedSource {
   let n = start;
@@ -22,10 +23,18 @@ function clientSeed(seat: number): Uint8Array {
   return bytes;
 }
 
-function fillPartners(seed: ServerSeedSource) {
+/** A fixed clock anchored at 0; the window opens at `contributionWindowMs`. */
+const clock: Clock = () => 0;
+
+/** A clock fixed at `t` — used to drive the contribution window past its deadline. */
+function clockAt(t: number): Clock {
+  return () => t;
+}
+
+function fillPartners(seed: ServerSeedSource, c: Clock = clock) {
   let state = createRoomCore(SINGLE_DECK_PARTNERS);
   for (let i = 0; i < SINGLE_DECK_PARTNERS.seating.playerCount; i++) {
-    state = joinRoom(state, `conn-${i}`, seed).state;
+    state = joinRoom(state, `conn-${i}`, seed, c).state;
   }
   return state;
 }
@@ -43,8 +52,8 @@ describe('pre-deal commit broadcast', () => {
   it('reveals only the commitment hash, never the server seed', () => {
     const seed = fixedSeeder();
     let state = createRoomCore(SINGLE_DECK_PARTNERS);
-    for (let i = 0; i < 3; i++) state = joinRoom(state, `conn-${i}`, seed).state;
-    const last = joinRoom(state, 'conn-3', seed);
+    for (let i = 0; i < 3; i++) state = joinRoom(state, `conn-${i}`, seed, clock).state;
+    const last = joinRoom(state, 'conn-3', seed, clock);
 
     const commitEffect = last.effects.find((e) => e.kind === 'commit');
     expect(commitEffect).toBeDefined();
@@ -63,42 +72,80 @@ describe('contribute-after-commit ordering', () => {
     let state = fillPartners(seed);
     // Drive a full deal so the window closes (handshake cleared)…
     for (let i = 0; i < SINGLE_DECK_PARTNERS.seating.playerCount; i++) {
-      state = submitContribution(state, `conn-${i}`, clientSeed(i)).state;
+      state = submitContribution(state, `conn-${i}`, clientSeed(i), clock).state;
     }
     expect(state.handshake).toBeNull();
     // …a contribution now has no published commit to attach to.
-    const result = submitContribution(state, 'conn-0', clientSeed(0));
+    const result = submitContribution(state, 'conn-0', clientSeed(0), clock);
     expect(result.effects[0]).toMatchObject({ kind: 'rejectContribution', reason: 'no-open-commit' });
   });
 
   it('records a contribution submitted after the commit', () => {
     const state = fillPartners(fixedSeeder());
-    const result = submitContribution(state, 'conn-1', clientSeed(1));
+    const result = submitContribution(state, 'conn-1', clientSeed(1), clock);
     expect(result.state.handshake!.contributions).toHaveLength(1);
     expect(result.state.handshake!.contributions[0]!.seat).toBe(1);
   });
 
   it('rejects a second contribution from the same seat', () => {
     let state = fillPartners(fixedSeeder());
-    state = submitContribution(state, 'conn-1', clientSeed(1)).state;
-    const again = submitContribution(state, 'conn-1', clientSeed(1));
+    state = submitContribution(state, 'conn-1', clientSeed(1), clock).state;
+    const again = submitContribution(state, 'conn-1', clientSeed(1), clock);
     expect(again.effects[0]).toMatchObject({ kind: 'rejectContribution', reason: 'already-contributed' });
   });
 
-  it('deals once every seated connection has contributed', () => {
+  it('deals once every seated connection has contributed (early-close fast-path)', () => {
     let state = fillPartners(fixedSeeder());
     const count = SINGLE_DECK_PARTNERS.seating.playerCount;
     for (let i = 0; i < count - 1; i++) {
-      const step = submitContribution(state, `conn-${i}`, clientSeed(i));
+      const step = submitContribution(state, `conn-${i}`, clientSeed(i), clock);
       expect(step.effects).toHaveLength(0); // not yet dealt
       state = step.state;
     }
-    const final = submitContribution(state, `conn-${count - 1}`, clientSeed(count - 1));
+    const final = submitContribution(state, `conn-${count - 1}`, clientSeed(count - 1), clock);
     expect(final.state.handshake).toBeNull();
     expect(final.state.engine!.public.phase).toBe('Auction');
     expect(final.state.engine!.private.hands).toHaveLength(count);
+    expect(final.state.contributionDeadline).toBeNull(); // window closed
+    // The first seat to act is now on the clock.
+    expect(final.state.turnStartedAt).toBe(0);
     // Each seat received its own dealt view.
     expect(final.effects.filter((e) => e.kind === 'view')).toHaveLength(count);
+  });
+});
+
+describe('contribution-window deadline', () => {
+  const count = SINGLE_DECK_PARTNERS.seating.playerCount;
+  const past = DEFAULT_CLOCK_CONFIG.contributionWindowMs + 1;
+
+  it('closes the window on its deadline, dealing with the fallback for absent seats', () => {
+    // Only seat 0 contributes; the rest never do. The window's deadline then fires.
+    let state = fillPartners(fixedSeeder());
+    state = submitContribution(state, 'conn-0', clientSeed(0), clock).state;
+    expect(state.handshake).not.toBeNull();
+
+    const closed = closeContributionWindow(state, clockAt(past));
+    expect(closed.state.handshake).toBeNull();
+    expect(closed.state.contributionDeadline).toBeNull();
+    expect(closed.state.engine!.public.phase).toBe('Auction');
+    expect(closed.state.engine!.private.hands).toHaveLength(count);
+    // Every seat received its dealt view despite three seats never contributing.
+    expect(closed.effects.filter((e) => e.kind === 'view')).toHaveLength(count);
+  });
+
+  it('is a no-op before the deadline (the adapter reschedules)', () => {
+    const state = fillPartners(fixedSeeder());
+    const early = closeContributionWindow(state, clockAt(1)); // well before the window closes
+    expect(early.state).toBe(state);
+    expect(early.effects).toHaveLength(0);
+  });
+
+  it('rejects a late contribution after the window has closed', () => {
+    const state = fillPartners(fixedSeeder());
+    // The commit window is open, but this contribution arrives past the deadline.
+    const late = submitContribution(state, 'conn-1', clientSeed(1), clockAt(past));
+    expect(late.effects[0]).toMatchObject({ kind: 'rejectContribution', reason: 'window-closed' });
+    expect(late.state).toBe(state); // nothing recorded
   });
 });
 
@@ -120,7 +167,8 @@ describe('seed assembly drives the deal', () => {
     // Only seat 0 contributed; seats 1..3 are absent → fallback.
     const dealt = assembleAndDeal(engine, handshakeWith([0]), seatCount);
     const dealtCards = dealt.private.hands.reduce((n, hand) => n + hand.cards.length, 0) + dealt.private.widow.length;
-    const deckSize = SINGLE_DECK_PARTNERS.deck.ranks.length * SINGLE_DECK_PARTNERS.deck.suits.length * SINGLE_DECK_PARTNERS.deck.copiesPerCard;
+    const deckSize =
+      SINGLE_DECK_PARTNERS.deck.ranks.length * SINGLE_DECK_PARTNERS.deck.suits.length * SINGLE_DECK_PARTNERS.deck.copiesPerCard;
     expect(dealt.private.hands).toHaveLength(seatCount);
     expect(dealtCards).toBe(deckSize);
   });
@@ -134,7 +182,10 @@ describe('seed assembly drives the deal', () => {
 
   it('different contributions yield a different deal', () => {
     const a = assembleAndDeal(engine, handshakeWith([0, 1, 2, 3]), seatCount);
-    const altered: HandshakeContext = { ...handshakeWith([0, 1, 2, 3]), contributions: [{ seat: 0, clientSeed: new Uint8Array(32).fill(99) }] };
+    const altered: HandshakeContext = {
+      ...handshakeWith([0, 1, 2, 3]),
+      contributions: [{ seat: 0, clientSeed: new Uint8Array(32).fill(99) }],
+    };
     const b = assembleAndDeal(engine, altered, seatCount);
     expect(a.private.hands).not.toEqual(b.private.hands);
   });

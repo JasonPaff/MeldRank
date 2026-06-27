@@ -1,10 +1,23 @@
-import { createInitialState, reduce, viewFor, type FilteredView, type State } from '@meldrank/engine';
+import { createInitialState, reduce, viewFor, type FilteredView, type State, type TimeoutEvent } from '@meldrank/engine';
 import type { SeatContribution } from '@meldrank/fairness';
 import type { VariantDefinition } from '@meldrank/shared';
 import { advanceLifecycle } from './lifecycle';
 import { isFull, lowestFreeSeat, isSeatOccupied, seatForConnection, withSeat } from './seating';
 import { assembleAndDeal, openHand } from './handshake';
-import type { Effect, IntentRejectReason, JoinResult, PlayerIntent, RoomCoreState, ServerSeedSource, StepResult } from './types';
+import { chargeElapsed, deadlineFor, grantBase, DEFAULT_CLOCK_CONFIG } from './clock';
+import type {
+  Clock,
+  ClockConfig,
+  Effect,
+  IntentRejectReason,
+  JoinResult,
+  PendingDeadline,
+  PlayerIntent,
+  RoomCoreState,
+  SeatClockSnapshot,
+  ServerSeedSource,
+  StepResult,
+} from './types';
 
 /**
  * The pure `RoomCore` (design D2): the room lifecycle machine plus the authoritative
@@ -16,12 +29,22 @@ import type { Effect, IntentRejectReason, JoinResult, PlayerIntent, RoomCoreStat
  * projections carried on the emitted effects (design D1).
  */
 
+/** Options for {@link createRoomCore}: ranked gating and clock-config overrides. */
+export interface CreateRoomOptions {
+  /** Ranked rooms emit the abandonment signal (design D7); defaults to casual. */
+  readonly ranked?: boolean;
+  /** Override any subset of the move-clock config; the rest fall back to the default. */
+  readonly clock?: Partial<ClockConfig>;
+}
+
 /**
  * Construct a room from its variant. The single authoritative engine `State` is
  * built here via `createInitialState` (spec: "Room constructs its engine state on
- * creation"); no card-bearing state exists until a hand is dealt.
+ * creation"); no card-bearing state exists until a hand is dealt. The move-clock
+ * config (design D6) is the locked default unless overridden, and the room is casual
+ * unless `ranked` is set; the room is timeless until the first deal stamps a turn.
  */
-export function createRoomCore(variant: VariantDefinition): RoomCoreState {
+export function createRoomCore(variant: VariantDefinition, options: CreateRoomOptions = {}): RoomCoreState {
   return {
     lifecycle: 'Reserved',
     variant,
@@ -30,6 +53,10 @@ export function createRoomCore(variant: VariantDefinition): RoomCoreState {
     engine: createInitialState(variant),
     handshake: null,
     handsDealt: 0,
+    config: { ...DEFAULT_CLOCK_CONFIG, ...options.clock },
+    ranked: options.ranked ?? false,
+    turnStartedAt: null,
+    contributionDeadline: null,
   };
 }
 
@@ -62,11 +89,20 @@ function broadcastViewsExcept(state: RoomCoreState, engine: State, exceptConnect
  * Begin a hand: open the commit window (resetting the engine to the next hand's
  * `Dealing` base when a prior hand just scored) and broadcast the commitment hash to
  * every seat **before** any card is dealt (spec: "Commit precedes every deal"). The
- * server seed is drawn from the injected source and never leaves the server.
+ * server seed is drawn from the injected source and never leaves the server. The
+ * contribution window's deadline is stamped from the injected `now` (design D5), and
+ * no seat is on the move clock until the deal lands.
  */
-function beginHand(state: RoomCoreState, seed: ServerSeedSource): StepResult {
+function beginHand(state: RoomCoreState, seed: ServerSeedSource, now: number): StepResult {
   const { engine, handshake } = openHand(state.engine!, state.handsDealt, seed());
-  const next: RoomCoreState = { ...state, engine, handshake, handsDealt: state.handsDealt + 1 };
+  const next: RoomCoreState = {
+    ...state,
+    engine,
+    handshake,
+    handsDealt: state.handsDealt + 1,
+    contributionDeadline: now + state.config.contributionWindowMs,
+    turnStartedAt: null,
+  };
   const effects: Effect[] = next.seats.map((seat) => ({
     kind: 'commit',
     connectionId: seat.connectionId,
@@ -77,6 +113,106 @@ function beginHand(state: RoomCoreState, seed: ServerSeedSource): StepResult {
 }
 
 /**
+ * Charge the currently-acting seat for the time it has held the turn (design D2):
+ * `elapsed = now - turnStartedAt` deducted from its base then reserve. A no-op when
+ * no seat is on the clock (e.g. a non-acting phase) or no turn has been stamped.
+ */
+function chargeActingSeat(state: RoomCoreState, now: number): RoomCoreState {
+  const acting = state.engine?.public.seatToAct ?? null;
+  if (acting === null || state.turnStartedAt === null) {
+    return state;
+  }
+  const elapsed = now - state.turnStartedAt;
+  const seats = state.seats.map((seat) => (seat.seatIndex === acting ? { ...seat, ...chargeElapsed(seat, elapsed) } : seat));
+  return { ...state, seats };
+}
+
+/**
+ * Stamp the turn for the engine's current seat-to-act (design D2): grant it a fresh
+ * base allotment and record `turnStartedAt = now`. When no seat is on the clock the
+ * turn is cleared (`turnStartedAt = null`) so the adapter arms no expiry.
+ */
+function stampTurn(state: RoomCoreState, now: number): RoomCoreState {
+  const acting = state.engine?.public.seatToAct ?? null;
+  if (acting === null) {
+    return { ...state, turnStartedAt: null };
+  }
+  const seats = state.seats.map((seat) => (seat.seatIndex === acting ? { ...seat, ...grantBase(seat, state.config) } : seat));
+  return { ...state, seats, turnStartedAt: now };
+}
+
+/**
+ * One `clockState` effect per seated connection (spec: "Per-seat clock state
+ * broadcast"). Each carries the acting seat, its authoritative deadline, and every
+ * seat's banks — the clocks are public, so each recipient receives the same snapshot.
+ */
+function clockStateEffects(state: RoomCoreState): Effect[] {
+  const acting = state.engine?.public.seatToAct ?? null;
+  const actingClock = acting === null ? undefined : state.seats.find((seat) => seat.seatIndex === acting);
+  const deadline =
+    acting !== null && state.turnStartedAt !== null && actingClock !== undefined ? deadlineFor(state.turnStartedAt, actingClock) : null;
+  const snapshots: SeatClockSnapshot[] = state.seats.map((seat) => ({
+    seat: seat.seatIndex,
+    remainingBaseMs: seat.remainingBaseMs,
+    remainingReserveMs: seat.remainingReserveMs,
+  }));
+  return state.seats.map((seat) => ({
+    kind: 'clockState',
+    connectionId: seat.connectionId,
+    actingSeat: acting,
+    deadline,
+    seats: snapshots,
+  }));
+}
+
+/**
+ * The shared post-`reduce` tail (design D4): given the advanced engine and the
+ * already-charged acting seat, fold the new engine into the room state, run out a
+ * completed match or open the next hand, stamp the new acting seat's turn, and append
+ * the per-recipient clock-state broadcast to the supplied `baseEffects`. Both the
+ * player-intent and the timeout paths funnel through here, so their broadcast
+ * behaviour cannot diverge.
+ */
+function applyAdvanceBroadcast(
+  state: RoomCoreState,
+  advanced: State,
+  now: number,
+  seed: ServerSeedSource,
+  baseEffects: Effect[],
+): StepResult {
+  let next: RoomCoreState = { ...state, engine: advanced, turnStartedAt: null };
+  const effects: Effect[] = [...baseEffects];
+
+  if (advanced.public.phase === 'MatchComplete') {
+    next = completeAndPersist(next);
+  } else if (advanced.public.phase === 'HandScoring') {
+    // Hand finished, match continues: open the next hand's commit window.
+    const began = beginHand(next, seed, now);
+    next = began.state;
+    effects.push(...began.effects);
+  } else {
+    next = stampTurn(next, now);
+  }
+
+  effects.push(...clockStateEffects(next));
+  return { state: next, effects };
+}
+
+/**
+ * Close the contribution window and deal (design D5): assemble the seed over the
+ * committed server seed and the collected contributions (deterministic fallback for
+ * absent seats), clear the handshake and its deadline, stamp the first seat's turn,
+ * and broadcast each seat's dealt view plus the opening clock state.
+ */
+function dealAndBroadcast(state: RoomCoreState, now: number): StepResult {
+  const dealt = assembleAndDeal(state.engine!, state.handshake!, state.seatCount);
+  let afterDeal: RoomCoreState = { ...state, engine: dealt, handshake: null, contributionDeadline: null };
+  afterDeal = stampTurn(afterDeal, now);
+  const effects: Effect[] = [...broadcastViews(afterDeal, dealt), ...clockStateEffects(afterDeal)];
+  return { state: afterDeal, effects };
+}
+
+/**
  * Seat a joining connection (spec: "Seat filling and identity"). Assigns the lowest
  * free seat (or a requested `desiredSeat`), rejecting a full room, an occupied target
  * seat, or a duplicate join. The joiner immediately receives a full authoritative
@@ -84,7 +220,13 @@ function beginHand(state: RoomCoreState, seed: ServerSeedSource): StepResult {
  * room, the lifecycle advances `Filling → Live` and the first hand begins (its commit
  * is broadcast to all seats).
  */
-export function joinRoom(state: RoomCoreState, connectionId: string, seed: ServerSeedSource, desiredSeat?: number): JoinResult {
+export function joinRoom(
+  state: RoomCoreState,
+  connectionId: string,
+  seed: ServerSeedSource,
+  clock: Clock,
+  desiredSeat?: number,
+): JoinResult {
   if (state.lifecycle === 'Disposed') {
     return { state, effects: [], outcome: { status: 'rejected', reason: 'disposed' } };
   }
@@ -109,7 +251,7 @@ export function joinRoom(state: RoomCoreState, connectionId: string, seed: Serve
     seatIndex = free;
   }
 
-  const seats = withSeat(state.seats, seatIndex, connectionId);
+  const seats = withSeat(state.seats, seatIndex, connectionId, state.config);
   const lifecycle = state.lifecycle === 'Reserved' ? advanceLifecycle('Reserved', 'Filling')! : state.lifecycle;
   let next: RoomCoreState = { ...state, seats, lifecycle };
 
@@ -118,7 +260,7 @@ export function joinRoom(state: RoomCoreState, connectionId: string, seed: Serve
 
   if (isFull(next)) {
     next = { ...next, lifecycle: advanceLifecycle(next.lifecycle, 'Live')! };
-    const began = beginHand(next, seed);
+    const began = beginHand(next, seed, clock());
     next = began.state;
     effects.push(...began.effects);
   }
@@ -133,7 +275,8 @@ export function joinRoom(state: RoomCoreState, connectionId: string, seed: Serve
  * seat. When the final seat contributes, the deal window closes immediately: the seed
  * is assembled and the hand dealt, and every seat receives its own dealt view.
  */
-export function submitContribution(state: RoomCoreState, connectionId: string, clientSeed: Uint8Array): StepResult {
+export function submitContribution(state: RoomCoreState, connectionId: string, clientSeed: Uint8Array, clock: Clock): StepResult {
+  const now = clock();
   if (state.lifecycle !== 'Live') {
     return { state, effects: [{ kind: 'rejectContribution', connectionId, reason: 'room-not-live' }] };
   }
@@ -144,6 +287,11 @@ export function submitContribution(state: RoomCoreState, connectionId: string, c
   if (state.handshake === null) {
     return { state, effects: [{ kind: 'rejectContribution', connectionId, reason: 'no-open-commit' }] };
   }
+  // Window deadline (design D5): once the contribution window has closed, the seat is
+  // too late — the deal proceeds (or has proceeded) with the deterministic fallback.
+  if (state.contributionDeadline !== null && now >= state.contributionDeadline) {
+    return { state, effects: [{ kind: 'rejectContribution', connectionId, reason: 'window-closed' }] };
+  }
   if (state.handshake.contributions.some((contribution) => contribution.seat === seat)) {
     return { state, effects: [{ kind: 'rejectContribution', connectionId, reason: 'already-contributed' }] };
   }
@@ -153,14 +301,30 @@ export function submitContribution(state: RoomCoreState, connectionId: string, c
   const handshake = { ...state.handshake, contributions };
   const next: RoomCoreState = { ...state, handshake };
 
-  // Window-close policy in this slice (no clock yet, design D5): deal once every
-  // seated connection has contributed; absent seats fall back deterministically.
+  // Fast-path close (design D5): when every seated connection has contributed before
+  // the deadline, close the window immediately and deal rather than waiting it out.
   if (contributions.length >= state.seatCount) {
-    const dealt = assembleAndDeal(next.engine!, handshake, state.seatCount);
-    const afterDeal: RoomCoreState = { ...next, engine: dealt, handshake: null };
-    return { state: afterDeal, effects: broadcastViews(afterDeal, dealt) };
+    return dealAndBroadcast(next, now);
   }
   return { state: next, effects: [] };
+}
+
+/**
+ * Close the contribution window on its deadline (design D5; spec: "Contribution
+ * window closes on deadline"). A no-op while the room is not awaiting contributions
+ * or the deadline has not yet passed (the adapter reschedules); otherwise it deals
+ * with the deterministic fallback for any seat that never contributed. The fast-path
+ * "everyone contributed early" close lives in {@link submitContribution}.
+ */
+export function closeContributionWindow(state: RoomCoreState, clock: Clock): StepResult {
+  const now = clock();
+  if (state.lifecycle !== 'Live' || state.engine === null || state.handshake === null) {
+    return { state, effects: [] };
+  }
+  if (state.contributionDeadline !== null && now < state.contributionDeadline) {
+    return { state, effects: [] };
+  }
+  return dealAndBroadcast(state, now);
 }
 
 /**
@@ -179,7 +343,9 @@ export function submitIntent(
   intent: PlayerIntent,
   correlationId: string,
   seed: ServerSeedSource,
+  clock: Clock,
 ): StepResult {
+  const now = clock();
   const engine = state.engine;
   if (state.lifecycle !== 'Live' || engine === null) {
     // A disposed room has released its engine and accepts no input — drop silently.
@@ -213,22 +379,91 @@ export function submitIntent(
   }
 
   // Accept: ack the submitter with its authoritative view, fan the rest out per seat.
-  const effects: Effect[] = [
+  const baseEffects: Effect[] = [
     { kind: 'accept', connectionId, correlationId, view: viewFor(advanced, seat) },
     ...broadcastViewsExcept(state, advanced, connectionId),
   ];
-  let next: RoomCoreState = { ...state, engine: advanced };
 
-  if (advanced.public.phase === 'MatchComplete') {
-    next = completeAndPersist(next);
-  } else if (advanced.public.phase === 'HandScoring') {
-    // Hand finished, match continues: deal the next hand (re-run the handshake).
-    const began = beginHand(next, seed);
-    next = began.state;
-    effects.push(...began.effects);
+  // Charge the acting seat for the time it held the turn, then advance/broadcast and
+  // grant the next acting seat its fresh base — the shared tail keeps the player and
+  // timeout paths identical (design D4).
+  const charged = chargeActingSeat(state, now);
+  return applyAdvanceBroadcast(charged, advanced, now, seed, baseEffects);
+}
+
+/**
+ * Resolve an expired move clock (design D4; spec: "Timeout resolves via the engine
+ * forced-move policy"). A no-op unless a seat is genuinely on the clock and its
+ * deadline has passed (the early-fire guard lets the adapter reschedule). On expiry
+ * it zeroes the acting seat's banks, tallies the timeout, injects the engine
+ * `timeout` system event into `reduce` — which resolves the forced move through
+ * `TimeoutMove` and the identical guards a player move passes — and runs the result
+ * through the shared advance/broadcast tail. When the tally crosses the configured
+ * threshold in a ranked room it also emits the abandonment signal (design D7); this
+ * slice only signals — it does not forfeit or substitute the seat.
+ */
+export function expireClock(state: RoomCoreState, clock: Clock, seed: ServerSeedSource): StepResult {
+  const now = clock();
+  const engine = state.engine;
+  if (state.lifecycle !== 'Live' || engine === null) {
+    return { state, effects: [] };
+  }
+  const acting = engine.public.seatToAct;
+  if (acting === null || state.turnStartedAt === null) {
+    return { state, effects: [] };
+  }
+  const actingClock = state.seats.find((s) => s.seatIndex === acting);
+  if (actingClock === undefined) {
+    return { state, effects: [] };
+  }
+  // Early-fire guard (task 4.2): if the deadline has not actually passed, do nothing
+  // and let the adapter re-arm its timer from the recomputed deadline.
+  if (now < deadlineFor(state.turnStartedAt, actingClock)) {
+    return { state, effects: [] };
   }
 
-  return { state: next, effects };
+  // Zero the acting seat's banks (its time is fully spent) and tally the timeout.
+  const timeoutCount = actingClock.timeoutCount + 1;
+  const seats = state.seats.map((s) => (s.seatIndex === acting ? { ...s, remainingBaseMs: 0, remainingReserveMs: 0, timeoutCount } : s));
+  const zeroed: RoomCoreState = { ...state, seats };
+
+  // Abandonment signal (design D7): ranked-only, on crossing the configured threshold.
+  const abandonment: Effect[] =
+    state.ranked && timeoutCount >= state.config.timeoutAbandonThreshold ? [{ kind: 'abandonmentSignal', seat: acting, timeoutCount }] : [];
+
+  const event: TimeoutEvent = { type: 'timeout', seat: acting };
+  const advanced = reduce(engine, event);
+  if (advanced === engine) {
+    // No forced move was defined for this phase (TimeoutMove returned null). The
+    // banks/tally still updated; nothing advances or broadcasts beyond the signal.
+    return { state: zeroed, effects: abandonment };
+  }
+
+  const result = applyAdvanceBroadcast(zeroed, advanced, now, seed, broadcastViews(zeroed, advanced));
+  return { state: result.state, effects: [...result.effects, ...abandonment] };
+}
+
+/**
+ * The room's currently-pending deadline (design D3), read by the adapter after every
+ * step to (re)arm its single wall-clock timer: the open contribution window's close
+ * while a commit is awaiting contributions, otherwise the acting seat's turn expiry,
+ * or `null` when nothing is on the clock.
+ */
+export function pendingDeadline(state: RoomCoreState): PendingDeadline | null {
+  if (state.lifecycle !== 'Live' || state.engine === null) {
+    return null;
+  }
+  if (state.handshake !== null && state.contributionDeadline !== null) {
+    return { at: state.contributionDeadline, kind: 'contribution' };
+  }
+  const acting = state.engine.public.seatToAct;
+  if (acting !== null && state.turnStartedAt !== null) {
+    const actingClock = state.seats.find((s) => s.seatIndex === acting);
+    if (actingClock !== undefined) {
+      return { at: deadlineFor(state.turnStartedAt, actingClock), kind: 'turn' };
+    }
+  }
+  return null;
 }
 
 /** Build a reject effect (no other broadcast) leaving the room state unchanged. */
