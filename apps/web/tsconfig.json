@@ -10,6 +10,7 @@
     "paths": {
       "@/*": ["./*"],
       "@meldrank/api": ["../../apps/api/src/index.ts"],
+      "@meldrank/engine": ["../../packages/engine/src/index.ts"],
       "@meldrank/shared": ["../../packages/shared/src/index.ts"]
     }
   },
