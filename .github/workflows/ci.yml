@@ -46,4 +46,10 @@ jobs:
         run: pnpm env:check
 
       - name: Lint, typecheck, test, build
+        # better-tailwindcss/enforce-canonical-classes runs a synckit worker that
+        # loads Tailwind v4; on cold CI runs the worker can exceed synckit's
+        # default wait and crash ESLint with "Atomics.wait() failed: timed-out".
+        # Give the worker a generous ceiling so the first (uncached) lint succeeds.
+        env:
+          SYNCKIT_TIMEOUT: 60000
         run: pnpm turbo run lint typecheck test build

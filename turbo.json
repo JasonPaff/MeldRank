@@ -1,6 +1,11 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "stream",
+  // Turbo runs in strict env mode by default, which hides undeclared system env
+  // vars from task processes. SYNCKIT_TIMEOUT must reach ESLint's synckit worker
+  // (used by better-tailwindcss/enforce-canonical-classes) so it can't be the
+  // value of any cache key — pass it through without folding it into the hash.
+  "globalPassThroughEnv": ["SYNCKIT_TIMEOUT"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
