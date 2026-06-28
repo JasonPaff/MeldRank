@@ -129,7 +129,12 @@ describe('brain — trick play surface', () => {
     // The chosen card is one the seat actually holds (no hidden-info reference)…
     expect(ownKeys.has(`${card!.rank}-${card!.suit}-${card!.copyIndex}`)).toBe(true);
     // …and it is one the engine's own legal-play set permits.
-    const legal = LegalPlayValidator({ seatIndex: seat, cards: view.own!.hand }, view.public.currentTrick, view.public.trump!, VARIANT.trick);
+    const legal = LegalPlayValidator(
+      { seatIndex: seat, cards: view.own!.hand },
+      view.public.currentTrick,
+      view.public.trump!,
+      VARIANT.trick,
+    );
     expect(legal.some((c) => c.rank === card!.rank && c.suit === card!.suit && c.copyIndex === card!.copyIndex)).toBe(true);
     // The engine accepts the play.
     expect(reduce(state, intent)).not.toBe(state);

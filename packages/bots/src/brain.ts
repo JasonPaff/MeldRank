@@ -88,7 +88,10 @@ function legalAuctionIntents(view: FilteredView, ctx: BotContext): PlayerIntent[
 function legalDeclareTrumpIntents(view: FilteredView, ctx: BotContext): PlayerIntent[] {
   const { contract } = view.public;
   const candidates: PlayerIntent[] = ctx.variant.deck.suits.map((trump) => ({ type: 'declareTrump', seat: ctx.seat, trump }));
-  return candidates.filter((intent) => intent.type === 'declareTrump' && declareTrump(contract, ctx.variant.deck.suits, intent.seat, intent.trump).status !== 'rejected');
+  return candidates.filter(
+    (intent) =>
+      intent.type === 'declareTrump' && declareTrump(contract, ctx.variant.deck.suits, intent.seat, intent.trump).status !== 'rejected',
+  );
 }
 
 /**

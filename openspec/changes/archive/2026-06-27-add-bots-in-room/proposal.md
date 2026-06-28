@@ -7,17 +7,19 @@ The engine→room→persistence spine is complete and tested, but a match cannot
 - **Seat in-process bots in the room** behind the same intent interface as humans. A bot occupies a real seat in the pure `RoomCore` (synthetic connection id + a bot marker), so a bot-filled room reaches `Live` and counts toward `isFull()` exactly like a human-filled one. Supports cold-start seat-fill and casual disconnect-takeover.
 - **Add a bot driver loop in the Colyseus adapter.** After each `RoomCore` step, when the acting seat is a bot the adapter derives that seat's `FilteredView`, waits a short randomized "think" delay (Bots & AI §7 humanized pacing, on the adapter's existing clock), invokes the bot brain, and feeds the returned `PlayerIntent` back through `submitIntent` on the bot's synthetic connection.
 - **Wire the existing `botTakeoverRequested` hook to actually seat a playing bot** in casual rooms, replacing the inert log-only stub. The returning human can still reclaim the seat (reconnection path is unchanged).
-- **Introduce `packages/bots`** — a pure, in-process decision-logic package (`@meldrank/bots`) exposing the bot brain behind a stable `brain(view, ctx) → PlayerIntent` interface. v1 ships a **random-legal** brain: enumerate the legal moves the engine permits *over the filtered view* and pick one. This is the same code a future extracted Bot Worker would wrap (Match Runtime §7 R5 — extractable later, no protocol change).
+- **Introduce `packages/bots`** — a pure, in-process decision-logic package (`@meldrank/bots`) exposing the bot brain behind a stable `brain(view, ctx) → PlayerIntent` interface. v1 ships a **random-legal** brain: enumerate the legal moves the engine permits _over the filtered view_ and pick one. This is the same code a future extracted Bot Worker would wrap (Match Runtime §7 R5 — extractable later, no protocol change).
 - Bots decide **only from the per-seat filtered view** (no hidden-information access, by construction) and are **never seated in ranked rooms**.
 - `apps/bots` (the deployable worker) stays a boot stub; extraction to a separate worker is explicitly out of scope (a later step).
 
 ## Capabilities
 
 ### New Capabilities
+
 - `bot-seating`: in-process bot seats in the Match Service room — the pure-core seat-a-bot path (synthetic connection + bot marker, counts toward fullness, never in ranked), the Colyseus adapter's bot driver loop (derive filtered view → think-delay → brain → resubmit intent), and the casual disconnect-takeover wiring. Slice #5 of the Match Runtime plan.
 - `bot-decision-policy`: the bot brain in `packages/bots` — the `brain(view, ctx) → PlayerIntent` intent-interface contract and the v1 random-legal decision logic that chooses among engine-legal moves derived from the filtered view, with a difficulty seam for later heuristic tiers.
 
 ### Modified Capabilities
+
 - `match-disconnect-abandonment`: the casual `BotControlled` takeover now seats a playing bot that acts on the seat's behalf, superseding the prior requirement that a `BotControlled` seat only runs its move clock with "no bot acts yet."
 
 ## Impact

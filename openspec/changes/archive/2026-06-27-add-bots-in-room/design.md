@@ -4,12 +4,13 @@ The Match Service (`apps/match`) is a pure `RoomCore` state machine (`(state, in
 
 Two facts shape the design:
 
-1. **Nothing currently drives a non-human seat.** The core emits per-seat `view`/`accept` effects addressed to a `connectionId`; for a seat with no Colyseus client the adapter's `findClient` returns `undefined` and the send is dropped. There is no mechanism that asks a seat to *produce* a move — humans push intents in; bots need to be pulled.
-2. **Bot architecture is locked (§7 R5):** in-process inside the Match Service, behind the same intent interface as humans, never in ranked, and structured so it is *extractable* to a separate Bot Worker later with no protocol change. The `apps/bots` deployable stays a stub; extraction is explicitly out of scope.
+1. **Nothing currently drives a non-human seat.** The core emits per-seat `view`/`accept` effects addressed to a `connectionId`; for a seat with no Colyseus client the adapter's `findClient` returns `undefined` and the send is dropped. There is no mechanism that asks a seat to _produce_ a move — humans push intents in; bots need to be pulled.
+2. **Bot architecture is locked (§7 R5):** in-process inside the Match Service, behind the same intent interface as humans, never in ranked, and structured so it is _extractable_ to a separate Bot Worker later with no protocol change. The `apps/bots` deployable stays a stub; extraction is explicitly out of scope.
 
 ## Goals / Non-Goals
 
 **Goals:**
+
 - Seat bots as first-class seats in the pure core so a bot-filled casual room reaches `Live` and runs the per-hand loop.
 - Drive a bot seat's turn from the adapter: derive its `FilteredView` → wait a humanized think delay → call the brain → resubmit the intent through the normal authoritative path.
 - Ship a pure, in-process `@meldrank/bots` package with a random-legal brain behind a stable `brain(view, ctx) → PlayerIntent` interface and a difficulty seam.
@@ -17,10 +18,11 @@ Two facts shape the design:
 - Keep the core pure and the rules layer bot-agnostic; keep bots out of ranked; keep hidden info unreachable to bots.
 
 **Non-Goals:**
+
 - Heuristic/strength play, bidding valuation, partner-awareness, difficulty tiers beyond the seam (Bots & AI §3–§5 — explicitly Next).
 - Extracting bots into the `apps/bots` worker or any out-of-process transport (§7 — Next).
 - Auction/double-deck bot strategy (widow/bury) — Partners-first only (Bots & AI §6).
-- The API path that *requests* bot seats (`casual.addBot`/`quickPlay`) — that is unit D; this change exposes the seating mechanism the room offers.
+- The API path that _requests_ bot seats (`casual.addBot`/`quickPlay`) — that is unit D; this change exposes the seating mechanism the room offers.
 - Any change to ranked behavior, the wire protocol, or persistence (unit A) internals.
 
 ## Decisions
@@ -30,7 +32,7 @@ Two facts shape the design:
 A bot occupies a real `SeatAssignment` in `RoomCoreState.seats` with a synthetic `connectionId` and a bot marker, rather than living in an adapter-side registry.
 
 - **Why:** cold-start fill must let the room reach `Live`, and `isFull()` counts `state.seats`. Seats not in the core cannot satisfy fullness, and the core's per-seat broadcast/clock/turn machinery is all seat-indexed. The takeover path already marks a seat `BotControlled` in the core, so this generalizes machinery that half-exists.
-- **Marker:** prefer an explicit `isBot` boolean on `SeatAssignment` over overloading `connectionStatus`. `connectionStatus: 'BotControlled'` means "a human seat currently handed to a bot (reclaimable)"; a cold-start seat-fill bot was never human and is not reclaimable. Distinguishing "is this seat bot-driven *right now*" (drives the adapter loop) from "was this a human" (drives reclaim) keeps both paths correct. The adapter drives a seat whenever it is bot-driven, by either signal.
+- **Marker:** prefer an explicit `isBot` boolean on `SeatAssignment` over overloading `connectionStatus`. `connectionStatus: 'BotControlled'` means "a human seat currently handed to a bot (reclaimable)"; a cold-start seat-fill bot was never human and is not reclaimable. Distinguishing "is this seat bot-driven _right now_" (drives the adapter loop) from "was this a human" (drives reclaim) keeps both paths correct. The adapter drives a seat whenever it is bot-driven, by either signal.
 - **Alternative considered:** synthetic clients registered with Colyseus so `view`/`accept` effects flow normally. Rejected — it pushes fake transport objects through the adapter and couples bot presence to Colyseus internals; the pull-driver is simpler and keeps the core the single source of seat truth.
 
 ### D2 — A new `seatBot` core entrypoint; the takeover path converges on it
@@ -57,7 +59,7 @@ The adapter schedules each bot move via `this.clock.setTimeout` after a randomiz
 
 ### D5 — `@meldrank/bots`: a pure brain package
 
-Create `packages/bots` (`@meldrank/bots`), depending only on `@meldrank/engine` and `@meldrank/shared`, exporting `brain(view, ctx) → PlayerIntent`. `ctx` carries at least the acting seat and a difficulty selector plus an injected randomness source (for purity/testability). The v1 brain enumerates engine-legal moves *from the filtered view* (the same legality the optimistic client runs) and picks one uniformly.
+Create `packages/bots` (`@meldrank/bots`), depending only on `@meldrank/engine` and `@meldrank/shared`, exporting `brain(view, ctx) → PlayerIntent`. `ctx` carries at least the acting seat and a difficulty selector plus an injected randomness source (for purity/testability). The v1 brain enumerates engine-legal moves _from the filtered view_ (the same legality the optimistic client runs) and picks one uniformly.
 
 - **Why a package, not inline or in `apps/bots`:** the §7 "extractable later" promise is cleanest when the brain is already an independent, dependency-light unit — a future Bot Worker just wraps the same package. Inlining in `apps/match` would have to be carved back out later; importing from `apps/bots` (an app) into `apps/match` (an app) creates an app→app dependency the monorepo graph should not have.
 - **Legality source:** the engine is the single rules authority and already runs in three places including bots. The brain calls the engine's legal-move enumeration over the filtered view; it never re-implements legality. Meld is engine-computed — no bot decision.
@@ -65,7 +67,7 @@ Create `packages/bots` (`@meldrank/bots`), depending only on `@meldrank/engine` 
 
 ### D6 — Determinism & fair play fall out of existing seams
 
-- **Replay:** the room logs the bot's *emitted intents* (capability `match-persistence`), so replay reconstructs bot moves from the log regardless of the brain's RNG — no need to reproduce bot internals.
+- **Replay:** the room logs the bot's _emitted intents_ (capability `match-persistence`), so replay reconstructs bot moves from the log regardless of the brain's RNG — no need to reproduce bot internals.
 - **Fair deal:** bot seats need no special-casing in the shuffle handshake; per Bots & AI §7 / Anti-Cheat §2 a bot seat contributes server-generated entropy committed identically to a human. For the skeleton, an un-contributing bot seat already falls through the handshake's deterministic missing-contribution fallback (capability `match-shuffle-handshake`), so no handshake change is required in this change.
 - **Hidden info:** the brain is handed only `viewFor(seat)`, so it is structurally as informed as a human — no extra enforcement needed.
 
