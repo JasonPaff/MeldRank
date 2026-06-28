@@ -25,7 +25,7 @@ depends on them.
   - **Styling** — Tailwind CSS v4 and shadcn/ui configured on the **Base UI**
     registry (`@base-ui-components/react`), not the Radix registry.
   - **Client state** — `zustand` for a session/table store established now.
-  - **Realtime** — `colyseus.js` plus a thin provider that *configures* a client
+  - **Realtime** — `colyseus.js` plus a thin provider that _configures_ a client
     against the match service URL.
 - Build the app shell: a root provider tree wrapping TanStack Query + the typed tRPC
   client + the Zustand store + the Colyseus client, and a Tailwind/shadcn(Base UI)
@@ -37,6 +37,7 @@ depends on them.
   provider tree mounts (no procedure calls, no room joins).
 
 **Explicitly out of scope** (later slices, listed to fix the boundary):
+
 - Any lobby procedure calls / screens — F1.
 - Any room join, view-message binding, optimistic intent loop, or table rendering — F2.
 - Real authentication — identity stays stubbed; Clerk is unit E.
@@ -44,6 +45,7 @@ depends on them.
 ## Capabilities
 
 ### New Capabilities
+
 - `web-client-foundation`: the `apps/web` client foundation — the typed tRPC client
   bound to `AppRouter`, the TanStack Query async-state layer, the Zustand
   session/table store, the configured-but-unconnected Colyseus client, the
@@ -52,10 +54,12 @@ depends on them.
   behavior.
 
 ### Modified Capabilities
+
 <!-- None. The `environment-config` spec states behavioral requirements (every consumed
      variable is declared in the schema; .env.example stays in agreement), not an
      enumerated key list. Adding NEXT_PUBLIC_MATCH_URL satisfies those existing
      requirements rather than changing them, so no delta spec is needed. -->
+
 _None._ Adding `NEXT_PUBLIC_MATCH_URL` satisfies the existing `environment-config`
 requirements (all consumed variables declared + `.env.example` in agreement) without
 changing them.
@@ -72,7 +76,7 @@ changing them.
 - **Contracts**: consumes the existing `type AppRouter` from `apps/api` and the
   `@meldrank/shared` web env — no server-side or shared-contract changes beyond the
   one new env variable.
-- **Transports lit**: none yet — this change only *configures* the tRPC and Colyseus
+- **Transports lit**: none yet — this change only _configures_ the tRPC and Colyseus
   clients; F1 exercises tRPC, F2 exercises Colyseus.
 - **Deploy**: introduces the `NEXT_PUBLIC_MATCH_URL` env requirement that unit H must
   set when `apps/web` is first deployed.

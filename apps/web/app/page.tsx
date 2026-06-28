@@ -8,9 +8,13 @@ import { Button } from '@/components/ui/button';
  */
 export default function Home() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-8">
+    <main
+      className="
+        flex min-h-screen flex-col items-center justify-center gap-4 p-8
+      "
+    >
       <h1 className="text-2xl font-semibold tracking-tight">MeldRank</h1>
-      <p className="text-muted-foreground text-sm">Client foundation ready.</p>
+      <p className="text-sm text-muted-foreground">Client foundation ready.</p>
       <Button>Get started</Button>
     </main>
   );

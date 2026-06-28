@@ -20,9 +20,7 @@ const ColyseusContext = createContext<Client | null>(null);
 export function ColyseusProvider({ children }: { children: ReactNode }) {
   // Lazy `useState` so the client is constructed exactly once, only under the
   // client boundary; on the server the initializer returns `null` (no `window`).
-  const [client] = useState<Client | null>(() =>
-    typeof window === 'undefined' ? null : new Client(env.NEXT_PUBLIC_MATCH_URL),
-  );
+  const [client] = useState<Client | null>(() => (typeof window === 'undefined' ? null : new Client(env.NEXT_PUBLIC_MATCH_URL)));
   return <ColyseusContext.Provider value={client}>{children}</ColyseusContext.Provider>;
 }
 
