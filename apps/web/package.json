@@ -14,6 +14,7 @@
   "dependencies": {
     "@base-ui-components/react": "^1.0.0-rc.0",
     "@meldrank/api": "workspace:*",
+    "@meldrank/engine": "workspace:*",
     "@meldrank/shared": "workspace:*",
     "@tanstack/react-query": "^5.101.2",
     "@trpc/client": "^11.18.0",
