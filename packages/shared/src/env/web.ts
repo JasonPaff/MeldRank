@@ -15,6 +15,7 @@ import { parseEnv } from './load';
 export const webEnv = z.object({
   NEXT_PUBLIC_APP_URL: z.url().default('http://localhost:3000'),
   NEXT_PUBLIC_API_URL: z.url().default('http://localhost:3001'),
+  NEXT_PUBLIC_MATCH_URL: z.url().default('http://localhost:2567'),
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string().min(1).optional(),
 });
 
