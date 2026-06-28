@@ -19,9 +19,9 @@ through each platform's secret store (`vercel env`, `fly secrets`).
 | **Upstash** (Redis) | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`                            | api, match, bots       |
 | **Clerk** (auth)    | `CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`                         | api (secret), web (pk) |
 | **Vercel** (web)    | hosts `apps/web`; set `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_API_URL`              | web                    |
-| **Vercel** (api)    | hosts `apps/api`; reads `DATABASE_URL`, `UPSTASH_*`, `CLERK_SECRET_KEY`, `PORT` | api                    |
-| **Fly.io** (match)  | hosts `apps/match`; reads `DATABASE_URL`, `UPSTASH_*`, `PORT`                   | match                  |
+| **Fly.io** (match)  | hosts `apps/match`; reads `DATABASE_URL`, `UPSTASH_*`, `INTERNAL_SPAWN_SECRET`, `SEAT_TICKET_SECRET`, `PORT` | match     |
 | **Fly.io** (bots)   | hosts `apps/bots`; reads `DATABASE_URL`, `UPSTASH_*`                            | bots                   |
+| **Fly.io** (api)    | hosts `apps/api`; reads `DATABASE_URL`, `UPSTASH_*`, `INTERNAL_SPAWN_SECRET`, `SEAT_TICKET_SECRET`, `MATCH_INTERNAL_URL`, `WEB_APP_ORIGIN`, `PORT` | api |
 
 `NODE_ENV` is set by each platform (Vercel/Fly set `production`); locally it
 defaults to `development`.
@@ -61,37 +61,50 @@ defaults to `development`.
 > Middleware/session wiring is the Auth & Identity change; here the keys are
 > only declared in the contract.
 
-### 4. Vercel (web + api — two separate projects)
+### 4. Vercel (web only)
 
-For each of `apps/web` and `apps/api`:
+> The API previously targeted Vercel but **moved to Fly.io** (see §5): Vercel's
+> serverless builder externalizes the `@meldrank/shared` TS-source workspace
+> package, so the deployed function failed at load with `ERR_MODULE_NOT_FOUND` on a
+> `.ts` import. **Decommission the old `meld-rank-api` Vercel project.**
 
-1. Create a Vercel project and set its **Root Directory** to the app's
-   directory (`apps/web` or `apps/api`). The committed `vercel.json` configures
-   the monorepo-aware install/build (Turbo-filtered) and `turbo-ignore` so a
-   project only rebuilds when its inputs change.
+For `apps/web`:
+
+1. Create a Vercel project and set its **Root Directory** to `apps/web`. The
+   committed `vercel.json` configures the monorepo-aware install/build
+   (Turbo-filtered) and `turbo-ignore` so the project only rebuilds when its inputs
+   change.
 2. Set environment variables in the Vercel project (`vercel env add …`) per the
-   table above. `apps/web` needs the `NEXT_PUBLIC_*` values; `apps/api` needs
-   `DATABASE_URL`, `UPSTASH_*`, `CLERK_SECRET_KEY`, and `PORT`.
+   table above — `apps/web` needs the `NEXT_PUBLIC_*` values, with
+   `NEXT_PUBLIC_API_URL` pointing at the Fly API URL from §5.
 3. Validate the descriptor locally with `vercel pull` / `vercel build` once the
    project is linked.
 
-### 5. Fly.io (match + bots — two separate apps)
+### 5. Fly.io (match + bots + api — three separate apps)
 
-For each of `apps/match` and `apps/bots`:
+For each of `apps/match`, `apps/bots`, and `apps/api`:
 
-1. Edit the `app` and `primary_region` placeholders in the app's `fly.toml`.
-2. Create the app: `fly apps create meldrank-match` (and `meldrank-bots`).
+1. Edit the `app` and `primary_region` placeholders in the app's `fly.toml` (the
+   committed names are `meldrank-match`, `meldrank-bots`, `meldrank-api`).
+2. Create the app: `fly apps create meldrank-match` (and `meldrank-bots`,
+   `meldrank-api`).
 3. Set secrets (never in `fly.toml`):
-   `fly secrets set --app meldrank-match DATABASE_URL=… UPSTASH_REDIS_REST_URL=… UPSTASH_REDIS_REST_TOKEN=…`
-   (omit `DATABASE_URL`/`UPSTASH_*` only if a service does not need them — both do).
+   - **match / bots:**
+     `fly secrets set --app meldrank-match DATABASE_URL=… UPSTASH_REDIS_REST_URL=… UPSTASH_REDIS_REST_TOKEN=… INTERNAL_SPAWN_SECRET=… SEAT_TICKET_SECRET=…`
+     (bots needs only `DATABASE_URL` + `UPSTASH_*`).
+   - **api** (also needs the spawn-seam URL + CORS origin):
+     `fly secrets set --app meldrank-api DATABASE_URL=… UPSTASH_REDIS_REST_URL=… UPSTASH_REDIS_REST_TOKEN=… INTERNAL_SPAWN_SECRET=… SEAT_TICKET_SECRET=… MATCH_INTERNAL_URL=… WEB_APP_ORIGIN=…`
 4. Deploy from the **repository root** so the Docker build context is the whole
    workspace:
    `fly deploy --config apps/match/fly.toml --dockerfile apps/match/Dockerfile`
-   (and the equivalent for `bots`).
+   (and the equivalents for `bots` and `api`).
 5. Validate config syntax before deploying with
    `fly config validate --config apps/match/fly.toml`.
 
 > `apps/match` exposes an HTTP/WebSocket service on `PORT` (2567).
+> `apps/api` exposes the tRPC HTTP service on `PORT` (3001); the web app's
+> `NEXT_PUBLIC_API_URL` resolves to its Fly URL, and the API reaches the match
+> service via `MATCH_INTERNAL_URL` (its Fly URL, or Fly private networking later).
 > `apps/bots` is a headless worker with no inbound service.
 
 ## Verifying the foundation locally

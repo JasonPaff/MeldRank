@@ -1,10 +1,4 @@
-# deployment-config Specification
-
-## Purpose
-
-Provide the per-app deploy descriptors for Vercel and Fly.io targets and a secret-free provisioning runbook so external resources and their environment variables can be reproduced manually.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Vercel deploy descriptors
 
@@ -41,12 +35,3 @@ from the monorepo and running it on Node 22.
 
 - **WHEN** the production `Dockerfile` for a Fly service is built
 - **THEN** the image builds successfully and its entry runs the service
-
-### Requirement: Provisioning runbook
-
-The repository SHALL include a provisioning runbook enumerating the external resources to create (Neon, Upstash, Clerk, Vercel projects, Fly apps) and the environment variables each populates, so manual provisioning is reproducible. The runbook SHALL NOT contain real secrets.
-
-#### Scenario: Runbook maps resources to variables
-
-- **WHEN** the provisioning runbook is read
-- **THEN** it lists each external resource and the environment variables it provides, referencing `.env.example` for variable shape, and contains no real credentials

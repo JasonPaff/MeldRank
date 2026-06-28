@@ -1,0 +1,28 @@
+# Fly.io deploy descriptor for the stateless tRPC API (Node + tsx). App name and
+# region are placeholders the operator sets at provisioning time (see infra/README.md).
+# Secrets are supplied via `fly secrets`, never here.
+#
+# Runtime shape: this service is STATELESS — it holds no in-memory state, so a stopped
+# machine loses nothing and Fly auto-starts one on the next request. Unlike the match
+# service (which must stay alive for live rooms), the API may scale to zero.
+app = "meldrank-api"
+primary_region = "ord"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3001"
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  # Stateless: let Fly stop idle machines and start one on demand (scale to zero).
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
