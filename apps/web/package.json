@@ -4,11 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "next build",
-    "dev": "next dev",
+    "build": "next-typesafe-url && next build",
+    "dev": "concurrently --kill-others-on-fail --names \"routes,next\" \"next-typesafe-url -w\" \"next dev\"",
     "lint": "eslint .",
+    "next-typesafe-url": "next-typesafe-url --config ./next-typesafe-url.config.ts",
     "start": "next start",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "next-typesafe-url && next typegen && tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@base-ui-components/react": "^1.0.0-rc.0",
@@ -22,9 +23,12 @@
     "colyseus.js": "^0.16.22",
     "lucide-react": "^1.21.0",
     "next": "^16.2.9",
+    "next-typesafe-url": "^6.1.0",
+    "nuqs": "^2.8.9",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "tailwind-merge": "^3.6.0",
+    "zod": "^4.4.3",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
@@ -33,6 +37,7 @@
     "@types/node": "^22.20.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "concurrently": "^10.0.3",
     "eslint": "^10.5.0",
     "tailwindcss": "^4.3.1",
     "tw-animate-css": "^1.4.0",

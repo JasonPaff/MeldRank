@@ -115,10 +115,19 @@ export function applyClaim(table: CasualTable, seat: number, occupant: TableSeat
   return { ...table, seats, version: table.version + 1 };
 }
 
-/** Parse a stored/returned value (object or JSON string) into a validated {@link CasualTable}. */
+/**
+ * Parse a stored/returned value (object or JSON string) into a validated {@link CasualTable}.
+ *
+ * The atomic {@link CLAIM_SCRIPT} round-trips the record through Redis `cjson`, which
+ * decodes JSON `null` to Lua `nil` and then *omits* nil-valued keys on re-encode — so a
+ * table written with `roomId: null` (every table before it goes `live`) comes back with
+ * `roomId` absent. The schema accepts `null` but not a missing key, so we restore the
+ * `roomId: null` default before validating; an actual room handle in the record overrides it.
+ */
 function parseTable(value: unknown): CasualTable {
   const json = typeof value === 'string' ? (JSON.parse(value) as unknown) : value;
-  return CasualTableSchema.parse(json);
+  const restored = typeof json === 'object' && json !== null ? { roomId: null, ...json } : json;
+  return CasualTableSchema.parse(restored);
 }
 
 /** A lexicographically-sortable list cursor encoding `createdAt` then `id`. */

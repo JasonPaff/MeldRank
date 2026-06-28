@@ -53,6 +53,8 @@ export const apiEnv = z.object({
   CLERK_SECRET_KEY: z.string().min(1),
   /** Base URL of the match service's internal spawn endpoint (the API calls it). */
   MATCH_INTERNAL_URL: z.url(),
+  /** The single allowlisted browser origin (`apps/web`) the API serves CORS to. */
+  WEB_APP_ORIGIN: z.url(),
 });
 
 /** `apps/match` — Colyseus service: database, Redis, the spawn seam, listen port. */

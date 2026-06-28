@@ -30,6 +30,25 @@ if (process.env.NODE_ENV !== 'test') {
   const port = env.PORT ?? 3001;
   const server = createHTTPServer({
     router: appRouter,
+    /**
+     * CORS for the single configured web origin (design: CORS at the standalone
+     * HTTP server). Reflects `WEB_APP_ORIGIN`, allows the tRPC methods/headers, and
+     * short-circuits the `OPTIONS` preflight with `204` before the tRPC handler runs.
+     * A single env-driven origin (not `*`) keeps credentialed requests valid and is
+     * the correct default for a real deploy.
+     */
+    middleware: (req, res, next) => {
+      res.setHeader('Access-Control-Allow-Origin', env.WEB_APP_ORIGIN);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization');
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+      next();
+    },
     createContext: ({ req }): ApiContext => {
       const { playerId } = resolveStubIdentity({ headers: req.headers });
       return { playerId, variants: variantCatalog, store, spawn, tickets };
