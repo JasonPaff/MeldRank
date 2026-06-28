@@ -20,4 +20,4 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 FROM base AS runtime
 ENV NODE_ENV=production
 COPY --from=deps /app ./
-CMD ["pnpm", "--filter", "@meldrank/bots", "start"]
+CMD ["pnpm", "--filter", "@meldrank/bots-worker", "start"]
