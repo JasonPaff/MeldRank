@@ -133,6 +133,13 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
     const variant = selectVariant(options?.variantId);
     this.core = createRoomCore(variant);
     this.maxClients = variant.seating.playerCount;
+    // A room is spawned ahead of any human joining (the API's internal `createRoom`
+    // reserves no Colyseus seat, and bots are seated in the core, not as clients), so
+    // the room is empty of clients between spawn and the human's `joinById`. Colyseus'
+    // default `autoDispose` would reap that empty room before the join lands — the
+    // human would hit "room not found". Disable it: this room owns its own lifecycle
+    // and disconnects/disposes itself once it reaches `Persisted` (see `run`).
+    this.autoDispose = false;
     // The durable backend and the seat-ticket secret are injected through the room
     // definition options (design D5; capability `match-spawn-gateway`).
     this.db = options?.db;

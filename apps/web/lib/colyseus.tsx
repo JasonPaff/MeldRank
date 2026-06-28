@@ -1,6 +1,6 @@
 'use client';
 
-import { Client } from 'colyseus.js';
+import { Client } from '@colyseus/sdk';
 import { createContext, type ReactNode, useContext, useState } from 'react';
 
 import { env } from './env';

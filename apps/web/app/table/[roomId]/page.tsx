@@ -1,7 +1,7 @@
 'use client';
 
+import type { Room } from '@colyseus/sdk';
 import type { FilteredView } from '@meldrank/engine';
-import type { Room } from 'colyseus.js';
 
 import { $path } from 'next-typesafe-url';
 import { useRouteParams } from 'next-typesafe-url/app';
