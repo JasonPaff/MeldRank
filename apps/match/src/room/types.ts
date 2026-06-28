@@ -49,6 +49,13 @@ export type SeatConnectionStatus = 'Connected' | 'Disconnected' | 'BotControlled
  * transport state, and `graceDeadline` is the injected-clock deadline at which a
  * `Disconnected` seat's reconnection window expires (`null` when the seat is
  * connected or no grace is running).
+ *
+ * Bot marker (capability `bot-seating`, design D1): `isBot` is `true` for a
+ * cold-start seat-fill bot — a seat that was *never* a human and is **not**
+ * reclaimable. It is kept distinct from `connectionStatus: 'BotControlled'` (a
+ * human seat handed to a bot after grace, which a returning human can reclaim):
+ * the adapter drives a seat whenever it is bot-driven *now* (either signal), while
+ * reclaim keys only on "was this a human". A human seat always has `isBot: false`.
  */
 export interface SeatAssignment extends SeatClock {
   readonly seatIndex: number;
@@ -57,6 +64,7 @@ export interface SeatAssignment extends SeatClock {
   readonly timeoutCount: number;
   readonly connectionStatus: SeatConnectionStatus;
   readonly graceDeadline: number | null;
+  readonly isBot: boolean;
 }
 
 /**
@@ -352,8 +360,13 @@ export type IntentRejectReason = 'room-not-live' | 'not-seated' | 'not-your-seat
 /** Machine-readable reason a seat contribution was rejected (spec: match-shuffle-handshake). */
 export type ContributionRejectReason = 'room-not-live' | 'not-seated' | 'no-open-commit' | 'already-contributed' | 'window-closed';
 
-/** Reason a join was rejected (spec: match-room-lifecycle, seat filling). */
-export type JoinRejectReason = 'disposed' | 'room-full' | 'seat-occupied' | 'already-seated';
+/**
+ * Reason a join (or bot seating) was rejected (spec: match-room-lifecycle, seat
+ * filling). `ranked` is bot-seating-only — the core refuses to seat a bot in a
+ * ranked room (capability `bot-seating`), so the invariant holds regardless of
+ * caller.
+ */
+export type JoinRejectReason = 'disposed' | 'room-full' | 'seat-occupied' | 'already-seated' | 'ranked';
 
 /**
  * An outbound message the room must send. Most effects are addressed to a single

@@ -2,8 +2,11 @@ import { randomBytes } from 'node:crypto';
 import { Room, type Client, type Delayed } from 'colyseus';
 import { SINGLE_DECK_CUTTHROAT, SINGLE_DECK_PARTNERS, type VariantDefinition } from '@meldrank/shared';
 import type { DatabaseClient, RedisClient } from '@meldrank/shared/server';
+import { viewFor } from '@meldrank/engine';
+import { brain, type BotContext } from '@meldrank/bots';
 import { fromHex, toHex } from '@meldrank/fairness';
 import {
+  botSeatToDrive,
   closeContributionWindow,
   createRoomCore,
   disposeRoom,
@@ -14,6 +17,7 @@ import {
   markPersisted,
   pendingDeadline,
   reconnect,
+  seatBot,
   submitContribution,
   submitIntent,
   type Clock,
@@ -57,6 +61,15 @@ const serverSeed: ServerSeedSource = () => new Uint8Array(randomBytes(32));
 const PERSIST_MAX_ATTEMPTS = 3;
 const PERSIST_BACKOFF_MS = 250;
 
+/**
+ * The humanized bot "think" delay range (design D4; Bots & AI — Design v1 §7): a bot
+ * move is scheduled after a randomized delay in `[BOT_THINK_MIN_MS, BOT_THINK_MAX_MS]`
+ * so the table renders bot turns at a readable pace. Kept well under the move-clock
+ * base allotment (20s) so a bot never times itself out while "thinking".
+ */
+const BOT_THINK_MIN_MS = 400;
+const BOT_THINK_MAX_MS = 1200;
+
 export class MatchRoom extends Room<{ state: RoomMetadata }> {
   private core!: RoomCoreState;
   /**
@@ -73,6 +86,12 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
    * step; only ever one is outstanding.
    */
   private deadlineTimer?: Delayed;
+  /**
+   * The single in-flight bot "think" timer (design D3/D4): at most one bot move is
+   * ever scheduled at a time. Cleared and re-armed after every step so a re-entrant
+   * step never double-fires a bot, and cleared on a reclaim/dispose.
+   */
+  private botTimer?: Delayed;
 
   /**
    * The production clock seam (design D1): Colyseus's monotonic room clock, supplied
@@ -80,7 +99,7 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
    */
   private readonly now: Clock = () => this.clock.currentTime;
 
-  override onCreate(options?: { variantId?: string; db?: DatabaseClient; redis?: RedisClient }): void {
+  override onCreate(options?: { variantId?: string; db?: DatabaseClient; redis?: RedisClient; bots?: number }): void {
     const variant = selectVariant(options?.variantId);
     this.core = createRoomCore(variant);
     this.maxClients = variant.seating.playerCount;
@@ -104,6 +123,16 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
     this.onMessage('contribute', (client: Client, message: ContributeMessage) => {
       this.run(submitContribution(this.core, client.sessionId, fromHex(message.clientSeed), this.now));
     });
+
+    // Cold-start seat-fill (capability `bot-seating`): seat the requested number of
+    // bots up front. The API path that *requests* bots (`casual.addBot`/`quickPlay`)
+    // is unit D; this option is the seam it (and the walking-skeleton boot) drives.
+    // Adopting each via `run()` advances the room to `Live` once full and engages the
+    // bot driver through the shared tail.
+    const botCount = Math.max(0, Math.min(options?.bots ?? 0, variant.seating.playerCount));
+    for (let i = 0; i < botCount; i++) {
+      this.run(seatBot(this.core, serverSeed, this.now));
+    }
   }
 
   override onJoin(client: Client): void {
@@ -147,14 +176,18 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
   override onDispose(): void {
     this.deadlineTimer?.clear();
     this.deadlineTimer = undefined;
+    this.botTimer?.clear();
+    this.botTimer = undefined;
     this.core = disposeRoom(this.core).state;
   }
 
   /**
    * Adopt a `RoomCore` step: take its next state, emit each effect to its target
    * connection, refresh the presence metadata, re-arm the pending deadline timer from
-   * the new state, and — once the durable write has driven the room to `Persisted`
-   * (capability `match-persistence`) — disconnect the room so it disposes.
+   * the new state, schedule the next bot move when a bot is on the clock (the single
+   * universal driver tail — design D3), and — once the durable write has driven the
+   * room to `Persisted` (capability `match-persistence`) — disconnect the room so it
+   * disposes.
    */
   private run(step: StepResult): void {
     this.core = step.state;
@@ -163,9 +196,69 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
     }
     this.syncMetadata();
     this.reschedule();
+    this.maybeDriveBot();
     if (this.core.lifecycle === 'Persisted') {
       void this.disconnect();
     }
+  }
+
+  /**
+   * Schedule the next bot move after any step (design D3/D4). When a bot seat is the
+   * one the engine expects to act ({@link botSeatToDrive} — `seatToAct`, or the
+   * contract winner during `DeclareTrump`/`Bury`), arm a single "think"-delayed timer
+   * on the room clock to play it. Cold-start fill, casual takeover, and consecutive
+   * bot turns all converge here — there is no separate driver path. A no-op when a
+   * human is on the clock, nothing is on the clock, or the match has resolved.
+   */
+  private maybeDriveBot(): void {
+    // Single in-flight bot timer: clear any prior schedule before re-evaluating, so a
+    // re-entrant step (a bot move re-entering `run()`) never leaves two timers armed.
+    this.botTimer?.clear();
+    this.botTimer = undefined;
+    const seat = botSeatToDrive(this.core);
+    if (seat === null) {
+      return;
+    }
+    const span = BOT_THINK_MAX_MS - BOT_THINK_MIN_MS;
+    const delay = BOT_THINK_MIN_MS + Math.floor(Math.random() * (span + 1));
+    this.botTimer = this.clock.setTimeout(() => {
+      this.botTimer = undefined;
+      this.driveBotMove(seat);
+    }, delay);
+  }
+
+  /**
+   * Fire a scheduled bot move (design D3): re-guard that `seat` is still the bot the
+   * engine awaits (a reclaim or an intervening step may have moved on), derive its
+   * `FilteredView` from the authoritative engine, ask the bot brain for an intent, and
+   * submit it on the bot's synthetic connection through the *identical* authoritative
+   * path a human intent takes. The resulting `run()` drives any subsequent bot turn to
+   * completion. A rejected bot intent is surfaced loudly (it indicates a brain/legality
+   * bug) rather than silently retried (task 4.4).
+   */
+  private driveBotMove(seat: number): void {
+    if (botSeatToDrive(this.core) !== seat) {
+      return;
+    }
+    const engine = this.core.engine;
+    const assignment = this.core.seats.find((s) => s.seatIndex === seat);
+    if (engine === null || assignment === undefined) {
+      return;
+    }
+    const ctx: BotContext = { seat, variant: this.core.variant, difficulty: 'medium', random: Math.random };
+    let intent: PlayerIntent;
+    try {
+      intent = brain(viewFor(engine, seat), ctx);
+    } catch (error) {
+      console.error(`[MatchRoom ${this.roomId}] bot brain failed for seat ${seat}`, error);
+      return;
+    }
+    const correlationId = `bot:${seat}:${this.clock.currentTime}`;
+    const step = submitIntent(this.core, assignment.connectionId, intent, correlationId, serverSeed, this.now);
+    if (step.effects.some((effect) => effect.kind === 'reject')) {
+      console.error(`[MatchRoom ${this.roomId}] bot intent rejected for seat ${seat}: ${JSON.stringify(intent)}`);
+    }
+    this.run(step);
   }
 
   /**
@@ -280,12 +373,17 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
   }
 
   /**
-   * Forward a casual bot-takeover request (design D8). Slice #5 (`apps/bots`) replaces
-   * this with a real bot worker joining behind the human intent interface; for now it is
-   * logged. The seat is already marked `BotControlled` in the core.
+   * Handle a casual bot-takeover request (capability `match-disconnect-abandonment`,
+   * `bot-seating`; design D8). The core has already marked the seat `BotControlled`;
+   * the seat is now driven by the **same** adapter bot driver as a cold-start
+   * seat-fill bot — there is no separate path. The driving itself is engaged by the
+   * shared `run()` tail ({@link maybeDriveBot}) once the bot-controlled seat is the one
+   * on the clock; a returning human reclaiming the seat (`reconnect`) restores it to
+   * `Connected`, after which the tail no longer drives it. This hook is the operational
+   * signal that the takeover happened.
    */
   private onBotTakeoverRequested(seat: number): void {
-    console.warn(`[MatchRoom ${this.roomId}] bot takeover requested: seat ${seat}`);
+    console.warn(`[MatchRoom ${this.roomId}] bot takeover: seat ${seat} now played by the in-process bot brain`);
   }
 
   /**

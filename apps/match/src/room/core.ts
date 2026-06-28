@@ -2,7 +2,7 @@ import { createInitialState, reduce, viewFor, type FilteredView, type State, typ
 import { toHex, type SeatContribution } from '@meldrank/fairness';
 import { hashVariant, REPLAY_FORMAT, REPLAY_SCHEMA_VERSION, type ReplayBlobV1, type VariantDefinition } from '@meldrank/shared';
 import { advanceLifecycle } from './lifecycle';
-import { isFull, lowestFreeSeat, isSeatOccupied, seatForConnection, withSeat } from './seating';
+import { botConnectionId, isFull, lowestFreeSeat, isSeatOccupied, seatForConnection, withSeat } from './seating';
 import { assembleAndDeal, openHand } from './handshake';
 import { chargeElapsed, deadlineFor, grantBase, DEFAULT_CLOCK_CONFIG } from './clock';
 import type {
@@ -324,6 +324,74 @@ export function joinRoom(
   if (isFull(next)) {
     // The room goes Live: stamp the record's start instant (design D1) and begin the
     // first hand. The single `clock()` read is reused for both so they agree.
+    const liveAt = clock();
+    next = {
+      ...next,
+      lifecycle: advanceLifecycle(next.lifecycle, 'Live')!,
+      record: { ...next.record, startedAt: liveAt },
+    };
+    const began = beginHand(next, seed, liveAt);
+    next = began.state;
+    effects.push(...began.effects);
+  }
+
+  return { state: next, effects, outcome: { status: 'seated', seat: seatIndex } };
+}
+
+/**
+ * Seat an in-process bot as a first-class seat (capability `bot-seating`, design
+ * D1/D2). Mirrors {@link joinRoom}'s seat-selection and fullness machinery — a bot
+ * counts toward occupancy exactly as a human, so a room whose remaining empty seats
+ * are filled by bots reaches `Live` and runs the per-hand loop — but seats a
+ * synthetic connection id with the `isBot` marker set and emits **no** join-time
+ * view (a bot has no client to send to). The ranked guard lives here (not just in
+ * the adapter) so the "never seat a bot in ranked" invariant holds regardless of
+ * caller. Refuses a disposed, ranked, or full room, and an occupied target seat.
+ *
+ * A distinct entrypoint from `joinRoom` (design D2): `joinRoom` assumes a real
+ * transport connection and emits a join-time view to it; threading "is this a bot"
+ * through it would muddy that contract. The casual disconnect-takeover does **not**
+ * call this — it reuses the existing human seat marked `BotControlled`
+ * ({@link expireGrace}); this path is the cold-start seat-fill.
+ */
+export function seatBot(state: RoomCoreState, seed: ServerSeedSource, clock: Clock, desiredSeat?: number): JoinResult {
+  if (state.lifecycle === 'Disposed') {
+    return { state, effects: [], outcome: { status: 'rejected', reason: 'disposed' } };
+  }
+  // The ranked invariant: a bot is never seated in a ranked room (capability
+  // `bot-seating`); ranked relies on the grace-then-forfeit path instead.
+  if (state.ranked) {
+    return { state, effects: [], outcome: { status: 'rejected', reason: 'ranked' } };
+  }
+
+  let seatIndex: number;
+  if (desiredSeat !== undefined) {
+    if (!Number.isInteger(desiredSeat) || desiredSeat < 0 || desiredSeat >= state.seatCount) {
+      return { state, effects: [], outcome: { status: 'rejected', reason: 'room-full' } };
+    }
+    if (isSeatOccupied(state, desiredSeat)) {
+      return { state, effects: [], outcome: { status: 'rejected', reason: 'seat-occupied' } };
+    }
+    seatIndex = desiredSeat;
+  } else {
+    const free = lowestFreeSeat(state);
+    if (free === null) {
+      return { state, effects: [], outcome: { status: 'rejected', reason: 'room-full' } };
+    }
+    seatIndex = free;
+  }
+
+  const connectionId = botConnectionId(seatIndex);
+  const seats = withSeat(state.seats, seatIndex, connectionId, state.config, true);
+  const lifecycle = state.lifecycle === 'Reserved' ? advanceLifecycle('Reserved', 'Filling')! : state.lifecycle;
+  let next: RoomCoreState = { ...state, seats, lifecycle };
+
+  // No join-time view for a bot (no client). When the bot fills the room it goes
+  // Live exactly as a human-filled room: stamp the record start and begin the first
+  // hand (the per-seat commit broadcast includes the bot's synthetic connection; the
+  // adapter simply drops the send for a connection with no client).
+  const effects: Effect[] = [];
+  if (isFull(next)) {
     const liveAt = clock();
     next = {
       ...next,
@@ -828,9 +896,10 @@ function abortMatch(state: RoomCoreState, reason: ResolutionReason, now: number)
  * seats a bot.
  *
  * In a **casual** room: the seat is marked `BotControlled` and a `botTakeoverRequested`
- * effect is emitted (the stubbed seating contract — slice #5 wires the real bot worker);
- * the match is **not** resolved, and the returning human can reclaim the seat via
- * `reconnect`. A `BotControlled` seat still runs its move clock (no bot acts yet).
+ * effect is emitted; the match is **not** resolved, and the returning human can reclaim
+ * the seat via `reconnect`. The `BotControlled` seat is now driven by the in-process bot
+ * brain through the same intent interface a human uses (capability `bot-seating`), so the
+ * table completes after the human drops; its move clock keeps running as for any seat.
  */
 export function expireGrace(state: RoomCoreState, seat: number, clock: Clock, seed: ServerSeedSource): StepResult {
   void seed; // resolution does not deal a new hand; the seam matches the other timer entrypoints.

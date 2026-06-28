@@ -171,7 +171,7 @@ An abandonment resolution (forfeit or abort) SHALL drive the room through its te
 
 ### Requirement: Casual grace expiry requests a reclaimable bot takeover
 
-When a disconnected seat's grace window expires in a casual room, the room SHALL mark the seat bot-controlled and emit a bot-takeover request for that seat rather than resolving the match, so the table can complete normally; the returning human SHALL be able to reclaim the seat any time before match end. The bot **decision** logic (slice #5, `apps/bots`) is out of scope: this slice provides only the seating contract behind the same intent interface a human uses, stubbed analogously to the deferred Clerk identity. A casual room SHALL NOT forfeit or abort on a single disconnect.
+When a disconnected seat's grace window expires in a casual room, the room SHALL mark the seat bot-controlled and emit a bot-takeover request for that seat rather than resolving the match, so the table can complete normally; the returning human SHALL be able to reclaim the seat any time before match end. The bot-controlled seat SHALL be played by the in-process bot brain through the same intent interface a human uses (capabilities `bot-seating`, `bot-decision-policy`), so the match progresses to completion after the human drops. A casual room SHALL NOT forfeit or abort on a single disconnect.
 
 #### Scenario: Casual grace expiry hands the seat to a bot
 
@@ -183,9 +183,10 @@ When a disconnected seat's grace window expires in a casual room, the room SHALL
 
 - **WHEN** the original player reconnects to a bot-controlled seat before match end
 - **THEN** the room restores the seat to that human and resyncs its filtered view
+- **AND** the seat stops being driven by the bot brain
 
-#### Scenario: Bot decision logic is not wired in this slice
+#### Scenario: The bot brain plays the taken-over seat
 
-- **WHEN** a seat is handed to a bot
-- **THEN** the room emits the takeover request through the human-equivalent intent interface
-- **AND** the actual bot move generation is deferred to the bots slice
+- **WHEN** a bot-controlled seat comes on the clock after a takeover
+- **THEN** the seat is driven by the bot brain through the human-equivalent intent interface
+- **AND** the match continues toward completion rather than waiting on the absent human

@@ -7,6 +7,7 @@
 export {
   createRoomCore,
   joinRoom,
+  seatBot,
   leaveRoom,
   reconnect,
   submitContribution,
@@ -21,7 +22,7 @@ export {
 } from './core';
 export { chargeElapsed, deadlineFor, grantBase, DEFAULT_CLOCK_CONFIG } from './clock';
 export { isLegalRoomTransition, advanceLifecycle, LIFECYCLE_ORDER } from './lifecycle';
-export { seatForConnection, isFull, lowestFreeSeat } from './seating';
+export { seatForConnection, isFull, lowestFreeSeat, botConnectionId, isBotDriven, engineActingSeat, botSeatToDrive } from './seating';
 export type {
   RoomLifecycle,
   RoomCoreState,
