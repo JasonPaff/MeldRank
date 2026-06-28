@@ -3,5 +3,5 @@
   "framework": null,
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "cd ../.. && pnpm turbo run build --filter=@meldrank/api",
-  "ignoreCommand": "cd ../.. && pnpm turbo-ignore @meldrank/api"
+  "ignoreCommand": "npx turbo-ignore @meldrank/api"
 }

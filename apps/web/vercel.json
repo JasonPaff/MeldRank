@@ -3,5 +3,5 @@
   "framework": "nextjs",
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "cd ../.. && pnpm turbo run build --filter=@meldrank/web",
-  "ignoreCommand": "cd ../.. && pnpm turbo-ignore @meldrank/web"
+  "ignoreCommand": "npx turbo-ignore @meldrank/web"
 }
