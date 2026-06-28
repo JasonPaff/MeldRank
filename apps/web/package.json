@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@base-ui-components/react": "^1.0.0-rc.0",
+    "@colyseus/sdk": "^0.17.26",
     "@meldrank/api": "workspace:*",
     "@meldrank/engine": "workspace:*",
     "@meldrank/shared": "workspace:*",
@@ -21,7 +22,6 @@
     "@trpc/tanstack-react-query": "^11.18.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "colyseus.js": "^0.16.22",
     "lucide-react": "^1.21.0",
     "next": "^16.2.9",
     "next-typesafe-url": "^6.1.0",
