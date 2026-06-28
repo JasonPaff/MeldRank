@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import { Room, type Client, type Delayed } from 'colyseus';
-import { SINGLE_DECK_CUTTHROAT, SINGLE_DECK_PARTNERS, type VariantDefinition } from '@meldrank/shared';
-import type { DatabaseClient, RedisClient } from '@meldrank/shared/server';
+import { Room, ServerError, type Client, type Delayed } from 'colyseus';
+import { SINGLE_DECK_CUTTHROAT, SINGLE_DECK_PARTNERS, type SeatTicket, type SpawnSeat, type VariantDefinition } from '@meldrank/shared';
+import { verifySeatTicket, type DatabaseClient, type RedisClient } from '@meldrank/shared/server';
 import { viewFor } from '@meldrank/engine';
 import { brain, type BotContext } from '@meldrank/bots';
 import { fromHex, toHex } from '@meldrank/fairness';
@@ -54,6 +54,30 @@ interface ContributeMessage {
   readonly clientSeed: string;
 }
 
+/**
+ * The room creation options (capability `match-spawn-gateway`). `variantId`/`seating`/
+ * `bots` come from the spawn gateway's `matchMaker.createRoom('match', …)` call;
+ * `db`/`redis`/`seatTicketSecret` are injected through the room *definition* defaults
+ * in `apps/match/src/index.ts`. When `seating` is present it is authoritative — each
+ * `bot` entry is filled at its seat index at creation and each `human` entry is left
+ * empty awaiting a ticketed join; `bots` remains the cold-start/test fallback that
+ * fills the lowest free seats when no `seating` is given.
+ */
+export interface MatchCreateOptions {
+  readonly variantId?: string;
+  readonly db?: DatabaseClient;
+  readonly redis?: RedisClient;
+  readonly bots?: number;
+  readonly seating?: readonly SpawnSeat[];
+  /** HMAC secret used to verify seat tickets at {@link MatchRoom.onAuth}. */
+  readonly seatTicketSecret?: string;
+}
+
+/** The join options a connection presents — carrying the signed seat ticket. */
+interface JoinOptions {
+  readonly ticket?: string;
+}
+
 /** Production entropy for a hand's server seed: 32 fresh CSPRNG bytes. */
 const serverSeed: ServerSeedSource = () => new Uint8Array(randomBytes(32));
 
@@ -81,6 +105,12 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
   private db?: DatabaseClient;
   private redis?: RedisClient;
   /**
+   * The HMAC secret seat tickets are verified against at {@link onAuth} (capability
+   * `match-spawn-gateway`, design D3), injected via the room definition options.
+   * Undefined in a bare test harness; `onAuth` then fails closed (rejects every join).
+   */
+  private seatTicketSecret?: string;
+  /**
    * The single pending wall-clock timer (design D3): the acting seat's turn expiry or
    * the open contribution window's close. Re-armed from the new state after every
    * step; only ever one is outstanding.
@@ -99,13 +129,15 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
    */
   private readonly now: Clock = () => this.clock.currentTime;
 
-  override onCreate(options?: { variantId?: string; db?: DatabaseClient; redis?: RedisClient; bots?: number }): void {
+  override onCreate(options?: MatchCreateOptions): void {
     const variant = selectVariant(options?.variantId);
     this.core = createRoomCore(variant);
     this.maxClients = variant.seating.playerCount;
-    // The durable backend is injected through the room definition options (design D5).
+    // The durable backend and the seat-ticket secret are injected through the room
+    // definition options (design D5; capability `match-spawn-gateway`).
     this.db = options?.db;
     this.redis = options?.redis;
+    this.seatTicketSecret = options?.seatTicketSecret;
 
     const state = new RoomMetadata();
     state.lifecycle = this.core.lifecycle;
@@ -124,19 +156,59 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
       this.run(submitContribution(this.core, client.sessionId, fromHex(message.clientSeed), this.now));
     });
 
-    // Cold-start seat-fill (capability `bot-seating`): seat the requested number of
-    // bots up front. The API path that *requests* bots (`casual.addBot`/`quickPlay`)
-    // is unit D; this option is the seam it (and the walking-skeleton boot) drives.
-    // Adopting each via `run()` advances the room to `Live` once full and engages the
-    // bot driver through the shared tail.
-    const botCount = Math.max(0, Math.min(options?.bots ?? 0, variant.seating.playerCount));
-    for (let i = 0; i < botCount; i++) {
-      this.run(seatBot(this.core, serverSeed, this.now));
+    // Seat-fill at creation (capability `bot-seating`, `match-spawn-gateway`). When the
+    // spawn gateway supplies a `seating` assignment it is authoritative: each `bot` seat
+    // is filled at its index and each `human` seat is left empty awaiting a ticketed
+    // join. Without a `seating`, fall back to the cold-start/test `bots` count, filling
+    // the lowest free seats. Either way, adopting each via `run()` advances the room to
+    // `Live` once full and engages the bot driver through the shared tail.
+    const seating = options?.seating;
+    if (seating !== undefined) {
+      for (let seat = 0; seat < seating.length && seat < variant.seating.playerCount; seat++) {
+        if (seating[seat]?.kind === 'bot') {
+          this.run(seatBot(this.core, serverSeed, this.now, seat));
+        }
+      }
+    } else {
+      const botCount = Math.max(0, Math.min(options?.bots ?? 0, variant.seating.playerCount));
+      for (let i = 0; i < botCount; i++) {
+        this.run(seatBot(this.core, serverSeed, this.now));
+      }
     }
   }
 
+  /**
+   * Verify the seat ticket a joining human presents (capability `match-room-lifecycle`,
+   * design D3). Checks the HMAC signature, the expiry, and that the ticket's `roomId`
+   * matches this room; on success returns the decoded payload (Colyseus attaches it to
+   * `client.auth`, where {@link onJoin} reads the reserved seat). Fails closed: a
+   * missing secret, a missing/malformed/expired/tampered ticket, or a room mismatch all
+   * reject the connection at the gate. The pure `RoomCore` is untouched — verification
+   * is adapter-level.
+   */
+  override onAuth(_client: Client, options?: JoinOptions): SeatTicket {
+    const secret = this.seatTicketSecret;
+    if (secret === undefined || secret === '') {
+      throw new ServerError(401, 'seat-ticket verification unavailable');
+    }
+    const token = options?.ticket;
+    if (typeof token !== 'string') {
+      throw new ServerError(401, 'missing seat ticket');
+    }
+    const payload = verifySeatTicket(token, secret, Date.now());
+    if (payload === null || payload.roomId !== this.roomId) {
+      throw new ServerError(401, 'invalid seat ticket');
+    }
+    return payload;
+  }
+
   override onJoin(client: Client): void {
-    const result = joinRoom(this.core, client.sessionId, serverSeed, this.now);
+    // Bind to the seat the verified ticket reserves (set on `client.auth` by onAuth),
+    // not the lowest free seat — server-authoritative seating (capability
+    // `match-room-lifecycle`). A bare test harness with no ticket falls back to the
+    // lowest free seat (`undefined` desired seat).
+    const reservedSeat = (client.auth as SeatTicket | undefined)?.seat;
+    const result = joinRoom(this.core, client.sessionId, serverSeed, this.now, reservedSeat);
     if (result.outcome.status === 'rejected') {
       // Throwing in onJoin rejects the connection (Colyseus convention).
       throw new Error(`join rejected: ${result.outcome.reason}`);

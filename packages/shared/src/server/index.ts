@@ -14,3 +14,5 @@ export * from './db/client';
 export * as dbSchema from './db/schema';
 export * from './db/projector';
 export * from './redis/client';
+/** Server-only seat-ticket sign/verify helper (the payload schema is isomorphic, on the root). */
+export { signSeatTicket, verifySeatTicket } from './api/ticket';

@@ -1,30 +1,40 @@
-import { initTRPC } from '@trpc/server';
 import { createHTTPServer } from '@trpc/server/adapters/standalone';
-import { healthy } from '@meldrank/shared';
 import { createDb, createRedis, loadApiEnv } from '@meldrank/shared/server';
-
-const t = initTRPC.create();
+import { appRouter, type AppRouter } from './routers';
+import { resolveStubIdentity } from './identity';
+import { createCasualTableStore } from './lobby/store';
+import { createTicketMinter } from './lobby/tickets';
+import { createHttpSpawnClient } from './spawn/client';
+import { variantCatalog } from './variants';
+import type { ApiContext } from './trpc';
 
 /**
- * Stateless tRPC backend stub. Real routers (auth, lobby, profile, …) land in
- * later changes; for now a single `health` procedure proves the server wires up
- * and can import schemas from `@meldrank/shared`.
+ * The tRPC backend boot (unit D). Validates the environment (fail-fast), constructs the
+ * foundation db/redis clients and the casual-lobby dependencies (the Redis-backed table
+ * store, the seat-ticket minter, and the HTTP client to the match spawn gateway), and
+ * serves the {@link appRouter} tree. Each request resolves the caller through the
+ * centralized stub-identity seam (design D5). In `test` nothing is constructed — the
+ * routers are exercised in-process via `createCaller` with injected fakes.
  */
-export const appRouter = t.router({
-  health: t.procedure.query(() => healthy('api')),
-});
-
-export type AppRouter = typeof appRouter;
+export { appRouter, type AppRouter };
 
 if (process.env.NODE_ENV !== 'test') {
-  // Validate the environment once at boot (fail-fast), then construct the
-  // foundation clients. No domain use yet — this only proves the wiring.
   const env = loadApiEnv();
   const db = createDb(env);
   const redis = createRedis(env);
 
+  const store = createCasualTableStore({ redis });
+  const tickets = createTicketMinter({ secret: env.SEAT_TICKET_SECRET });
+  const spawn = createHttpSpawnClient({ baseUrl: env.MATCH_INTERNAL_URL, secret: env.INTERNAL_SPAWN_SECRET });
+
   const port = env.PORT ?? 3001;
-  const server = createHTTPServer({ router: appRouter });
+  const server = createHTTPServer({
+    router: appRouter,
+    createContext: ({ req }): ApiContext => {
+      const { playerId } = resolveStubIdentity({ headers: req.headers });
+      return { playerId, variants: variantCatalog, store, spawn, tickets };
+    },
+  });
   server.listen(port);
-  console.log(`[api] tRPC stub listening on :${port} (db + redis clients ready: ${!!db && !!redis})`);
+  console.log(`[api] tRPC listening on :${port} (db + redis clients ready: ${!!db && !!redis})`);
 }

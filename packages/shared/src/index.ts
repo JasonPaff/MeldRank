@@ -36,6 +36,15 @@ export * from './intent';
  */
 export * from './match';
 
+/**
+ * The isomorphic API contract surface (capability `shared-api-contracts`): the tRPC
+ * procedure I/O schemas, the API↔Match room-spawn pair, the seat-ticket payload, the
+ * ephemeral casual-table/seat/bot state shapes, and the cursor-pagination envelope +
+ * typed error taxonomy. Browser-safe — the seat-ticket sign/verify helper is
+ * server-only (`@meldrank/shared/server`).
+ */
+export * from './api';
+
 /** Health-check record schema, used by the app services' liveness endpoints. */
 export const HealthSchema = z.object({
   service: z.string(),
