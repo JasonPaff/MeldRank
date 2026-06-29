@@ -1,9 +1,10 @@
+import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 
-import { Providers } from './providers';
 import './globals.css';
+import { Providers } from './providers';
 
-export const metadata = {
+export const metadata: Metadata = {
   description: 'Competitive pinochle.',
   title: 'MeldRank',
 };
