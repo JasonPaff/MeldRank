@@ -5,16 +5,16 @@ import { buildContext, createApiRuntime } from './context';
 import { corsHeaders, CORS_PREFLIGHT_STATUS } from './cors';
 
 /**
- * The tRPC backend's **standalone local-dev entry** (unit D). It validates the environment
+ * The tRPC backend's **standalone HTTP entry** (unit D). It validates the environment
  * (fail-fast), constructs the runtime via the shared {@link createApiRuntime} factory, and
  * serves the {@link appRouter} over a long-lived `.listen()` HTTP server with the shared
  * single-origin CORS policy. Each request resolves the caller through the centralized
  * stub-identity seam (design D5) via {@link buildContext}.
  *
- * The deployed surface is the Vercel serverless function in `api/index.ts`, which serves
- * the same router + context through the fetch adapter; this entry stays the local-dev
- * server (`pnpm --filter @meldrank/api dev`). In `test` nothing is constructed — the
- * routers are exercised in-process via `createCaller` with injected fakes.
+ * This long-lived server is both the local-dev entry (`pnpm --filter @meldrank/api dev`)
+ * and the deployed surface: the API now runs on Fly.io, where the Dockerfile launches this
+ * same entry via the `start` script (`tsx src/index.ts`). In `test` nothing is constructed
+ * — the routers are exercised in-process via `createCaller` with injected fakes.
  */
 export { appRouter, type AppRouter };
 
