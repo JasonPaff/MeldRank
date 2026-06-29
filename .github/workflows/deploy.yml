@@ -1,0 +1,118 @@
+name: Deploy
+
+# Continuous deployment for the Fly.io services (api, match, bots).
+#
+# Web (apps/web) is intentionally NOT deployed here — it ships through Vercel's
+# native Git integration (preview on PR, production on push to main), so this
+# workflow owns only the three Fly apps.
+#
+# Strategy: on every push to main, detect which Fly apps were *affected* by the
+# push (their own code or any workspace package they depend on) and deploy only
+# those. Affected detection uses Turborepo's dependency graph, so a change to a
+# shared package (e.g. @meldrank/shared) correctly redeploys every dependent.
+
+on:
+  push:
+    branches: [main]
+
+# Deploys must not run against stale credentials; only this workflow needs the token.
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    name: Detect affected apps
+    runs-on: ubuntu-latest
+    outputs:
+      # JSON array of Fly app slugs to deploy, e.g. ["api","match"]. "[]" if none.
+      apps: ${{ steps.affected.outputs.apps }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history so the pushed base commit is reachable for the diff below.
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node 22 (with pnpm store cache)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Determine affected Fly apps
+        id: affected
+        env:
+          # `turbo --affected` defaults to `main...HEAD`, which is empty on a push
+          # TO main. Pin the comparison to the exact range this push introduced.
+          BASE: ${{ github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          # First push / force-push / unrelated history: `before` may be all-zeros
+          # or unreachable. We can't compute a diff, so deploy everything (safe).
+          if [ -z "${BASE}" ] || [ "${BASE}" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            echo "No usable base commit (${BASE}); deploying all Fly apps."
+            echo 'apps=["api","match","bots"]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Turbo reads these to scope `--affected` to this push's commit range.
+          export TURBO_SCM_BASE="${BASE}"
+          export TURBO_SCM_HEAD="${HEAD}"
+
+          # `.packages` lists every workspace package in scope after the affected
+          # filter — changed packages AND their dependents.
+          PACKAGES="$(pnpm exec turbo run build --affected --dry=json | jq -r '.packages[]')"
+          echo "Affected packages:"
+          echo "${PACKAGES}"
+
+          # Map affected package names → Fly app slugs and emit a JSON array.
+          affected() { echo "${PACKAGES}" | grep -qx "$1"; }
+          apps=()
+          affected @meldrank/api          && apps+=("api")
+          affected @meldrank/match        && apps+=("match")
+          affected @meldrank/bots-worker  && apps+=("bots")
+
+          if [ "${#apps[@]}" -eq 0 ]; then
+            json="[]"
+          else
+            json="$(printf '%s\n' "${apps[@]}" | jq -R . | jq -sc .)"
+          fi
+          echo "Deploying: ${json}"
+          echo "apps=${json}" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Deploy ${{ matrix.app }}
+    needs: detect
+    if: needs.detect.outputs.apps != '[]'
+    runs-on: ubuntu-latest
+    environment: production
+    strategy:
+      # One app failing must not cancel the others' deploys.
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.detect.outputs.apps) }}
+    # Never let two deploys of the same app race; queue them instead of cancelling.
+    concurrency:
+      group: deploy-${{ matrix.app }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy ${{ matrix.app }} to Fly.io
+        # Run from the repo root so the Docker build context is the whole workspace
+        # (each Dockerfile COPYs `packages/` and `apps/`). See infra/README.md §5.
+        run: flyctl deploy --config apps/${{ matrix.app }}/fly.toml --dockerfile apps/${{ matrix.app }}/Dockerfile --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

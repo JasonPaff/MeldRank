@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import type { TableIntent } from './intents';
 
 import { CardBack, CardChip } from './card';
+import { MoveClock, SeatClockBanks } from './clock';
 
 /**
  * Pure table layout (tasks 6.2/6.3): own hand, opponents as `handSizes`
@@ -27,13 +28,7 @@ const SUITS: readonly Suit[] = ['spades', 'hearts', 'clubs', 'diamonds'];
 const SUIT_GLYPH: Record<Suit, string> = { clubs: '♣', diamonds: '♦', hearts: '♥', spades: '♠' };
 const SEAT_COUNT = 4;
 
-export function TableView({
-  model,
-  submitIntent,
-}: {
-  model: RenderModel;
-  submitIntent: (intent: TableIntent) => void;
-}) {
+export function TableView({ model, submitIntent }: { model: RenderModel; submitIntent: (intent: TableIntent) => void }) {
   const pub = model.public;
   if (!pub) {
     return <p className="text-sm text-muted-foreground">Waiting for game state…</p>;
@@ -42,6 +37,8 @@ export function TableView({
   const canPlay = model.availableAction?.kind === 'playCard';
   const viewerSeat = model.viewer;
   const opponents = Array.from({ length: SEAT_COUNT }, (_, seat) => seat).filter((seat) => seat !== viewerSeat);
+  // Per-seat clock banks, indexed by seat for O(1) lookup in the seat rows.
+  const banksBySeat = new Map(model.seatClocks.map((bank) => [bank.seat, bank]));
 
   return (
     <div className="flex w-full max-w-3xl flex-col gap-6">
@@ -49,6 +46,7 @@ export function TableView({
       <section className="flex flex-wrap justify-center gap-6">
         {opponents.map((seat) => (
           <OpponentSeat
+            banks={banksBySeat.get(seat)}
             handSize={model.handSizes[seat] ?? 0}
             key={seat}
             onClock={model.onClockSeat === seat}
@@ -58,10 +56,13 @@ export function TableView({
         ))}
       </section>
 
-      {/* Center — contract/trump, auction standing, current + completed tricks. */}
-      <section className="
-        flex flex-col items-center gap-3 rounded-lg border bg-card/40 p-4
-      ">
+      {/* Center — move clock, contract/trump, auction standing, tricks. */}
+      <section
+        className="
+          flex flex-col items-center gap-3 rounded-lg border bg-card/40 p-4
+        "
+      >
+        <MoveClock deadline={model.clockDeadline} />
         <ContractLine contract={pub.contract} phase={pub.phase} trump={pub.trump} />
         <AuctionStanding auction={pub.auction} />
         <CurrentTrick plays={pub.currentTrick.plays} />
@@ -74,16 +75,23 @@ export function TableView({
       <ScorePad cumulative={pub.scorePad.cumulative} />
 
       {/* Own seat — hand + the legal action for this phase. */}
-      <section className="
-        flex flex-col items-center gap-4 rounded-lg border bg-card p-4
-      ">
+      <section
+        className="
+          flex flex-col items-center gap-4 rounded-lg border bg-card p-4
+        "
+      >
         <header className="flex items-center gap-2 text-sm">
           <span className="font-medium">{viewerSeat === null ? 'Spectating' : `You — seat ${viewerSeat}`}</span>
+          {viewerSeat !== null && banksBySeat.has(viewerSeat) && <SeatClockBanks banks={banksBySeat.get(viewerSeat)!} />}
           {viewerSeat !== null && model.onClockSeat === viewerSeat && (
-            <span className="
-              rounded-full bg-primary px-2 py-0.5 text-xs
-              text-primary-foreground
-            ">Your turn</span>
+            <span
+              className="
+                rounded-full bg-primary px-2 py-0.5 text-xs
+                text-primary-foreground
+              "
+            >
+              Your turn
+            </span>
           )}
         </header>
 
@@ -98,7 +106,12 @@ export function TableView({
                 key={`${card.rank}-${card.suit}-${card.copyIndex}`}
                 onSelect={
                   canPlay && viewerSeat !== null
-                    ? () => submitIntent({ card: { copyIndex: card.copyIndex, rank: card.rank, suit: card.suit }, seat: viewerSeat, type: 'playCard' })
+                    ? () =>
+                        submitIntent({
+                          card: { copyIndex: card.copyIndex, rank: card.rank, suit: card.suit },
+                          seat: viewerSeat,
+                          type: 'playCard',
+                        })
                     : undefined
                 }
               />
@@ -156,7 +169,15 @@ function AuctionStanding({ auction }: { auction: null | { highBid: null | { seat
   );
 }
 
-function BidControls({ currentHigh, seat, submitIntent }: { currentHigh: null | number; seat: number; submitIntent: (intent: TableIntent) => void }) {
+function BidControls({
+  currentHigh,
+  seat,
+  submitIntent,
+}: {
+  currentHigh: null | number;
+  seat: number;
+  submitIntent: (intent: TableIntent) => void;
+}) {
   const minBid = (currentHigh ?? 0) + 1;
   const [value, setValue] = useState(minBid);
   return (
@@ -178,11 +199,21 @@ function BidControls({ currentHigh, seat, submitIntent }: { currentHigh: null | 
   );
 }
 
-function ContractLine({ contract, phase, trump }: { contract: null | { seatIndex: number; value: number }; phase: string; trump: null | Suit }) {
+function ContractLine({
+  contract,
+  phase,
+  trump,
+}: {
+  contract: null | { seatIndex: number; value: number };
+  phase: string;
+  trump: null | Suit;
+}) {
   return (
-    <div className="
-      flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-sm
-    ">
+    <div
+      className="
+        flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-sm
+      "
+    >
       <span className="text-muted-foreground">
         Phase: <span className="font-medium text-foreground">{phase}</span>
       </span>
@@ -212,7 +243,19 @@ function CurrentTrick({ plays }: { plays: readonly { card: Card; seatIndex: numb
   );
 }
 
-function OpponentSeat({ handSize, onClock, seat, status }: { handSize: number; onClock: boolean; seat: number; status: string }) {
+function OpponentSeat({
+  banks,
+  handSize,
+  onClock,
+  seat,
+  status,
+}: {
+  banks?: RenderModel['seatClocks'][number];
+  handSize: number;
+  onClock: boolean;
+  seat: number;
+  status: string;
+}) {
   return (
     <div className={cn('flex flex-col items-center gap-2 rounded-lg border p-3', onClock && `
       border-primary ring-1 ring-primary
@@ -221,6 +264,7 @@ function OpponentSeat({ handSize, onClock, seat, status }: { handSize: number; o
         <span className="font-medium">Seat {seat}</span>
         <span className="text-muted-foreground">{status}</span>
       </div>
+      {banks && <SeatClockBanks banks={banks} />}
       <div className="flex gap-1">
         {Array.from({ length: handSize }, (_, i) => (
           <CardBack key={i} />

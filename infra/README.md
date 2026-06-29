@@ -13,15 +13,15 @@ through each platform's secret store (`vercel env`, `fly secrets`).
 
 ## Resource → environment variable map
 
-| Resource            | Provides                                                                        | Consumed by            |
-| ------------------- | ------------------------------------------------------------------------------- | ---------------------- |
-| **Neon** (Postgres) | `DATABASE_URL`                                                                  | api, match, bots       |
-| **Upstash** (Redis) | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`                            | api, match, bots       |
-| **Clerk** (auth)    | `CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`                         | api (secret), web (pk) |
-| **Vercel** (web)    | hosts `apps/web`; set `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_API_URL`              | web                    |
-| **Fly.io** (match)  | hosts `apps/match`; reads `DATABASE_URL`, `UPSTASH_*`, `INTERNAL_SPAWN_SECRET`, `SEAT_TICKET_SECRET`, `PORT` | match     |
-| **Fly.io** (bots)   | hosts `apps/bots`; reads `DATABASE_URL`, `UPSTASH_*`                            | bots                   |
-| **Fly.io** (api)    | hosts `apps/api`; reads `DATABASE_URL`, `UPSTASH_*`, `INTERNAL_SPAWN_SECRET`, `SEAT_TICKET_SECRET`, `MATCH_INTERNAL_URL`, `WEB_APP_ORIGIN`, `PORT` | api |
+| Resource            | Provides                                                                                                                                           | Consumed by            |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| **Neon** (Postgres) | `DATABASE_URL`                                                                                                                                     | api, match, bots       |
+| **Upstash** (Redis) | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`                                                                                               | api, match, bots       |
+| **Clerk** (auth)    | `CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`                                                                                            | api (secret), web (pk) |
+| **Vercel** (web)    | hosts `apps/web`; set `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_API_URL`                                                                                 | web                    |
+| **Fly.io** (match)  | hosts `apps/match`; reads `DATABASE_URL`, `UPSTASH_*`, `INTERNAL_SPAWN_SECRET`, `SEAT_TICKET_SECRET`, `PORT`                                       | match                  |
+| **Fly.io** (bots)   | hosts `apps/bots`; reads `DATABASE_URL`, `UPSTASH_*`                                                                                               | bots                   |
+| **Fly.io** (api)    | hosts `apps/api`; reads `DATABASE_URL`, `UPSTASH_*`, `INTERNAL_SPAWN_SECRET`, `SEAT_TICKET_SECRET`, `MATCH_INTERNAL_URL`, `WEB_APP_ORIGIN`, `PORT` | api                    |
 
 `NODE_ENV` is set by each platform (Vercel/Fly set `production`); locally it
 defaults to `development`.
@@ -106,6 +106,33 @@ For each of `apps/match`, `apps/bots`, and `apps/api`:
 > `NEXT_PUBLIC_API_URL` resolves to its Fly URL, and the API reaches the match
 > service via `MATCH_INTERNAL_URL` (its Fly URL, or Fly private networking later).
 > `apps/bots` is a headless worker with no inbound service.
+
+## CI / CD
+
+Two GitHub Actions workflows own automation:
+
+- **`.github/workflows/ci.yml` (CI — checks only).** Runs the quality gate
+  (`lint`, `typecheck`, `test`, `build`, plus `env:check`) on every pull request
+  and on pushes to `main`. It never deploys.
+- **`.github/workflows/deploy.yml` (CD — Fly only).** On every push to `main` it
+  detects which Fly apps were *affected* by the push (via Turborepo's dependency
+  graph, so a change to a shared package like `@meldrank/shared` redeploys every
+  dependent) and runs `flyctl deploy --remote-only` for just those apps. Each
+  deploy runs from the repo root so the Docker build context is the whole
+  workspace (see §5).
+
+**`apps/web` is not deployed by Actions** — it ships through Vercel's native Git
+integration (preview deployments on PRs, production on push to `main`). Keep that
+integration enabled on the Vercel `apps/web` project; no workflow drives it.
+
+### Required GitHub configuration
+
+- **Repository secret `FLY_API_TOKEN`** — a Fly deploy token with access to the
+  three apps. Create one with `fly tokens create deploy` (or a broader org token)
+  and add it under **Settings → Secrets and variables → Actions**.
+- The deploy jobs target a GitHub **`production`** environment. It is created
+  automatically on first use; add required reviewers there if you later want a
+  manual approval gate before Fly deploys.
 
 ## Verifying the foundation locally
 

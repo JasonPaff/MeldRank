@@ -37,6 +37,13 @@ export interface ClockStateSnapshot {
 export interface RenderModel {
   /** The action available to the viewer this turn, or null (not your turn / pending). */
   readonly availableAction: AvailableAction | null;
+  /**
+   * The on-clock move deadline as injected ms (F2b D1), or null when no move is
+   * pending. Resolved from `clockState.deadline`, falling back to the synced
+   * `clockDeadline` until the first `clockState` arrives. The live countdown
+   * ticks against this in a view-local timer — the store is never written per frame.
+   */
+  readonly clockDeadline: null | number;
   /** Per-seat held-card counts; `handSizes[i]` cards for seat `i`. */
   readonly handSizes: readonly number[];
   /** Room lifecycle marker, or null before the first sync. */
@@ -55,6 +62,8 @@ export interface RenderModel {
   readonly public: null | PublicState;
   /** The reason the last intent was rejected, surfaced until the next attempt. */
   readonly rejectReason: null | string;
+  /** Per-seat remaining time banks from the latest `clockState`, or empty (F2b D1). */
+  readonly seatClocks: ClockStateSnapshot['seats'];
   /** Per-seat connection status from synced metadata. */
   readonly seatStatus: readonly string[];
   /** Connection lifecycle. */
@@ -106,18 +115,27 @@ export interface TableState {
   view: FilteredView | null;
 }
 
-/** Connection lifecycle for the table surface (design D6). */
-export type TableStatus = 'complete' | 'connected' | 'connecting' | 'error';
+/** Connection lifecycle for the table surface (design D6, F2b D4). */
+export type TableStatus = 'complete' | 'connected' | 'connecting' | 'error' | 'reconnecting';
 
 type TableStore = ReturnType<typeof createTableStore>;
 
-/** Build the derived render model from the raw two-channel state (design D1). */
-function buildRenderModel(state: Pick<TableState, 'metadata' | 'pendingCorrelationId' | 'rejectReason' | 'status' | 'view'>): RenderModel {
-  const { metadata, pendingCorrelationId, rejectReason, status, view } = state;
+/** Build the derived render model from the raw two-channel state (design D1, F2b D1). */
+function buildRenderModel(
+  state: Pick<TableState, 'clockState' | 'metadata' | 'pendingCorrelationId' | 'rejectReason' | 'status' | 'view'>,
+): RenderModel {
+  const { clockState, metadata, pendingCorrelationId, rejectReason, status, view } = state;
   const pending = pendingCorrelationId !== null;
   const onClockSeat = view?.public.seatToAct ?? (metadata && metadata.seatToAct >= 0 ? metadata.seatToAct : null);
+  // The on-clock deadline comes from `clockState` once it arrives; until then we
+  // fall back to the synced `clockDeadline` (`-1` means no pending move).
+  const clockDeadline = clockState ? clockState.deadline : metadata && metadata.clockDeadline >= 0 ? metadata.clockDeadline : null;
+  // Mid-reconnect it is never the viewer's turn to act (F2b D4, task 6.2); the
+  // resynced view re-enables the action under the normal turn gating.
+  const inputLocked = pending || status === 'reconnecting';
   return {
-    availableAction: deriveAvailableAction(view, pending),
+    availableAction: deriveAvailableAction(view, inputLocked),
+    clockDeadline,
     handSizes: view?.handSizes ?? [],
     lifecycle: metadata?.lifecycle ?? null,
     matchResult: view?.public.matchResult ?? null,
@@ -127,6 +145,7 @@ function buildRenderModel(state: Pick<TableState, 'metadata' | 'pendingCorrelati
     pending,
     public: view?.public ?? null,
     rejectReason,
+    seatClocks: clockState?.seats ?? [],
     seatStatus: metadata?.seatStatus ?? [],
     status,
     viewer: view?.viewer ?? null,
@@ -186,6 +205,7 @@ export function TableStoreProvider({ children }: { children: ReactNode }) {
 export function useRenderModel(): RenderModel {
   const raw = useTableStore(
     useShallow((s) => ({
+      clockState: s.clockState,
       metadata: s.metadata,
       pendingCorrelationId: s.pendingCorrelationId,
       rejectReason: s.rejectReason,

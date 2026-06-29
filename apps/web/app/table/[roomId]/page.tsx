@@ -1,73 +1,45 @@
 'use client';
 
-import type { Room } from '@colyseus/sdk';
-import type { FilteredView } from '@meldrank/engine';
-
 import { $path } from 'next-typesafe-url';
 import { useRouteParams } from 'next-typesafe-url/app';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useRef } from 'react';
-
-import type { TableIntent } from '@/components/table/intents';
-import type { ClockStateSnapshot, SyncedMetadataSnapshot } from '@/lib/table-store';
+import { useSyncExternalStore } from 'react';
 
 import { TableView } from '@/components/table/table-view';
 import { Button } from '@/components/ui/button';
-import { useColyseus } from '@/lib/colyseus';
-import { useSessionStore } from '@/lib/store';
-import { TableStoreProvider, useRenderModel, useTableStore, useTableStoreApi } from '@/lib/table-store';
+import { TableStoreProvider, useRenderModel } from '@/lib/table-store';
+import { useTableConnection } from '@/lib/use-table-connection';
 
 import { Route } from './route-type';
 
-interface AcceptMessage {
-  readonly correlationId: string;
-  readonly view: FilteredView;
-}
+/** Stable no-op subscribe for the client-gate store (it never notifies). */
+const subscribeNoop = () => () => {};
 
-interface CommitMessage {
-  readonly commit: string;
-  readonly handNonce: number;
-}
-
-interface RejectMessage {
-  readonly correlationId: string;
-  readonly reason: string;
-  readonly view: FilteredView;
-}
-/** The room's auto-synced presence schema (`RoomMetadata`), read off `room.state`. */
-interface SyncedMetadata {
-  readonly clockDeadline: number;
-  readonly lifecycle: string;
-  readonly occupancy: ArrayLike<boolean> & Iterable<boolean>;
-  readonly seatStatus: ArrayLike<string> & Iterable<string>;
-  readonly seatToAct: number;
-}
 /**
- * F2a live table (design D6). Replaces the F1 stub: it joins the spawned Colyseus
- * room with the lobby's seat ticket, merges the two state channels into the table
- * store, drives the pessimistic human intent loop, and fires the best-effort
- * per-hand seed contribution — enough for a 1-human + 3-bot Single-Deck Partners
- * game to play to completion and persist (SLE-184 unit F task 5.2).
+ * F2b live table. Thin renderer over {@link useTableConnection}, the resilience
+ * controller that owns the whole Client↔Match lifecycle (warm-handoff join,
+ * cold-load reconnect, in-table reconnect/resync, and token persistence). The
+ * route component owns only the store provider and the rendering: the live clock
+ * (F2b D1), a non-blocking "reconnecting…" banner over the last authoritative view
+ * (D4), the match-complete terminal, and the return-to-lobby affordances.
  *
- * The route component owns the table store provider; {@link TableSurface} owns the
- * connection lifecycle and renders from the derived render model. Clocks,
- * reconnect/resync, and cold-load ticket re-mint are F2b.
+ * The table is strictly client-rendered: {@link TableSurface} is gated behind
+ * {@link useIsClient} so its Colyseus-dependent hooks never run during SSR.
  */
 export default function TablePage() {
-  return (
-    <TableStoreProvider>
-      <TableSurface />
-    </TableStoreProvider>
-  );
+  const isClient = useIsClient();
+  return <TableStoreProvider>{isClient ? <TableSurface /> : <TableBootPlaceholder />}</TableStoreProvider>;
 }
 
 function MatchCompleteBanner({ model, onReturn }: { model: ReturnType<typeof useRenderModel>; onReturn: () => void }) {
   const standings = model.matchResult?.standings ?? [];
   return (
-    <section className="
-      flex w-full max-w-3xl flex-col items-center gap-3 rounded-lg border
-      border-primary bg-card p-4
-    ">
+    <section
+      className="
+        flex w-full max-w-3xl flex-col items-center gap-3 rounded-lg border
+        border-primary bg-card p-4
+      "
+    >
       <h2 className="text-base font-semibold">Match complete</h2>
       {standings.length > 0 && (
         <ul className="flex flex-col items-center gap-1 text-sm">
@@ -83,11 +55,32 @@ function MatchCompleteBanner({ model, onReturn }: { model: ReturnType<typeof use
   );
 }
 
+/** Non-blocking reconnect indicator shown over the held view during `reconnecting` (D4, task 6.1). */
+function ReconnectingBanner() {
+  return (
+    <div
+      aria-live="polite"
+      className="
+        flex w-full max-w-3xl items-center justify-center gap-2 rounded-lg
+        border border-amber-500/50 bg-amber-500/10 px-4 py-2 text-sm
+        text-amber-700
+        dark:text-amber-400
+      "
+      role="status"
+    >
+      <span className="size-2 animate-pulse rounded-full bg-amber-500" />
+      Connection lost — reconnecting…
+    </div>
+  );
+}
+
 function ReturnToLobby({ message, onReturn, title }: { message: string; onReturn: () => void; title: string }) {
   return (
-    <main className="
-      flex min-h-screen flex-col items-center justify-center gap-4 p-8
-    ">
+    <main
+      className="
+        flex min-h-screen flex-col items-center justify-center gap-4 p-8
+      "
+    >
       <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
       <p className="max-w-sm text-center text-sm text-muted-foreground">{message}</p>
       <Button onClick={onReturn}>Return to lobby</Button>
@@ -95,140 +88,46 @@ function ReturnToLobby({ message, onReturn, title }: { message: string; onReturn
   );
 }
 
-/** Copy the synced `ArraySchema` fields into plain arrays for the store snapshot. */
-function snapshotMetadata(state: SyncedMetadata): SyncedMetadataSnapshot {
-  return {
-    clockDeadline: state.clockDeadline,
-    lifecycle: state.lifecycle,
-    occupancy: Array.from(state.occupancy),
-    seatStatus: Array.from(state.seatStatus),
-    seatToAct: state.seatToAct,
-  };
+/** Pre-hydration placeholder; the client immediately replaces it with {@link TableSurface}. */
+function TableBootPlaceholder() {
+  return (
+    <main
+      className="
+        flex min-h-screen flex-col items-center justify-center gap-4 p-8
+      "
+    >
+      <h1 className="text-lg font-semibold tracking-tight">MeldRank table</h1>
+      <p className="text-sm text-muted-foreground">Connecting to the table…</p>
+    </main>
+  );
 }
 
 function TableSurface() {
   const { data: routeParams } = useRouteParams(Route.routeParams);
   const router = useRouter();
-  const colyseus = useColyseus();
-  const storeApi = useTableStoreApi();
-
-  const seatTicket = useSessionStore((s) => s.seatTicket);
-
-  const applyView = useTableStore((s) => s.applyView);
-  const applyMetadata = useTableStore((s) => s.applyMetadata);
-  const setStatus = useTableStore((s) => s.setStatus);
-  const setPending = useTableStore((s) => s.setPending);
-  const clearPending = useTableStore((s) => s.clearPending);
-  const setRejectReason = useTableStore((s) => s.setRejectReason);
-  const setClockState = useTableStore((s) => s.setClockState);
-
-  const model = useRenderModel();
-  const roomRef = useRef<null | Room<SyncedMetadata>>(null);
 
   const roomId = routeParams?.roomId;
-  const ticketToken = seatTicket?.token;
+  const { noSession, submitIntent } = useTableConnection(roomId);
+  const model = useRenderModel();
 
-  useEffect(() => {
-    // Cold load (design D5): no in-memory ticket survived, so we cannot rejoin —
-    // the return-to-lobby affordance is rendered below; never connect.
-    if (!roomId || !ticketToken) return;
+  const returnToLobby = () => router.push($path({ route: '/' }));
 
-    let disposed = false;
-    const contributed = new Set<number>();
-    const matchComplete = { current: false };
-
-    function noteResult(view: FilteredView) {
-      if (view.public.matchResult) matchComplete.current = true;
-    }
-
-    function clearIfMatch(correlationId: string) {
-      if (storeApi.getState().pendingCorrelationId === correlationId) clearPending();
-    }
-
-    colyseus
-      .joinById<SyncedMetadata>(roomId, { ticket: ticketToken })
-      .then((room) => {
-        if (disposed) {
-          void room.leave();
-          return;
-        }
-        roomRef.current = room;
-        setStatus('connected');
-
-        room.onStateChange((state) => applyMetadata(snapshotMetadata(state)));
-
-        room.onMessage<FilteredView>('view', (view) => {
-          noteResult(view);
-          applyView(view);
-        });
-
-        room.onMessage<AcceptMessage>('accept', ({ correlationId, view }) => {
-          noteResult(view);
-          applyView(view);
-          clearIfMatch(correlationId);
-        });
-
-        room.onMessage<RejectMessage>('reject', ({ correlationId, reason, view }) => {
-          noteResult(view);
-          applyView(view);
-          setRejectReason(reason);
-          clearIfMatch(correlationId);
-        });
-
-        room.onMessage<CommitMessage>('commit', ({ handNonce }) => {
-          // Best-effort, fire-once per hand (design D4); never blocks the loop.
-          if (contributed.has(handNonce)) return;
-          contributed.add(handNonce);
-          room.send('contribute', { clientSeed: toHex(crypto.getRandomValues(new Uint8Array(32))) });
-        });
-
-        room.onMessage<ClockStateSnapshot>('clockState', (payload) => setClockState(payload));
-
-        // Best-effort contribution rejections are non-fatal — drain and ignore.
-        room.onMessage('rejectContribution', () => undefined);
-
-        room.onLeave(() => {
-          if (disposed) return;
-          // A server-initiated close after a `matchResult` view is the success
-          // terminal (design D6); any earlier drop is an error.
-          setStatus(matchComplete.current ? 'complete' : 'error');
-        });
-
-        room.onError(() => {
-          if (disposed) return;
-          setStatus('error');
-        });
-      })
-      .catch(() => {
-        // `onAuth`/join rejection (missing, invalid, or expired ticket).
-        if (!disposed) setStatus('error');
-      });
-
-    return () => {
-      disposed = true;
-      void roomRef.current?.leave();
-      roomRef.current = null;
-    };
-  }, [roomId, ticketToken, colyseus, storeApi, applyView, applyMetadata, setStatus, clearPending, setRejectReason, setClockState]);
-
-  const submitIntent = useCallback(
-    (intent: TableIntent) => {
-      const room = roomRef.current;
-      if (!room) return;
-      const correlationId = crypto.randomUUID();
-      setPending(correlationId);
-      room.send('intent', { correlationId, intent });
-    },
-    [setPending],
-  );
-
-  // Cold load — no ticket to present.
-  if (!ticketToken) {
-    return <ReturnToLobby message="No active seat. Head back to the lobby to start or rejoin a game." onReturn={() => router.push($path({ route: '/' }))} title="No table to join" />;
+  // Cold load with neither a seat ticket nor a persisted token — nothing to resume.
+  if (noSession) {
+    return (
+      <ReturnToLobby
+        message="No active seat. Head back to the lobby to start or rejoin a game."
+        onReturn={returnToLobby}
+        title="No table to join"
+      />
+    );
   }
 
+  // Grace window exhausted (or an unrecoverable connection error).
   if (model.status === 'error') {
-    return <ReturnToLobby message="The table connection was lost before the match finished." onReturn={() => router.push($path({ route: '/' }))} title="Connection error" />;
+    return (
+      <ReturnToLobby message="The table connection was lost before the match finished." onReturn={returnToLobby} title="Connection error" />
+    );
   }
 
   return (
@@ -241,14 +140,27 @@ function TableSurface() {
         ">Connecting to the table…</p>}
       </header>
 
-      {model.status === 'complete' && <MatchCompleteBanner model={model} onReturn={() => router.push($path({ route: '/' }))} />}
+      {model.status === 'reconnecting' && <ReconnectingBanner />}
+
+      {model.status === 'complete' && <MatchCompleteBanner model={model} onReturn={returnToLobby} />}
 
       {model.status !== 'connecting' && <TableView model={model} submitIntent={submitIntent} />}
     </main>
   );
 }
 
-/** Hex-encode random bytes for the `contribute` client seed (design D4). */
-function toHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+/**
+ * True only after hydration, on the client. {@link useTableConnection} calls
+ * `useColyseus()`, which throws during SSR because the Colyseus client is
+ * constructed under the client boundary only (the server context value is null).
+ * `useSyncExternalStore` returns the server snapshot (`false`) during SSR and the
+ * first hydration render — so there is no hydration mismatch — then re-renders with
+ * `true` on the client, at which point it is safe to mount {@link TableSurface}.
+ */
+function useIsClient(): boolean {
+  return useSyncExternalStore(
+    subscribeNoop,
+    () => true,
+    () => false,
+  );
 }
