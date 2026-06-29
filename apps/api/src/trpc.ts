@@ -1,8 +1,10 @@
 import { initTRPC, TRPCError } from '@trpc/server';
 import type { ApiErrorCode } from '@meldrank/shared';
 import type { Logger } from '@meldrank/shared/server';
+import type { ClerkAuth } from './identity';
 import type { CasualTableStore } from './lobby/store';
 import type { TicketMinter } from './lobby/tickets';
+import type { PlayerResolver } from './players';
 import type { SpawnClient } from './spawn/client';
 import type { VariantCatalog } from './variants';
 
@@ -20,17 +22,23 @@ export interface ApiDeps {
   readonly store: CasualTableStore;
   readonly spawn: SpawnClient;
   readonly tickets: TicketMinter;
+  /** The Clerk Bearer-session verifier (capability `auth-identity`, design D5). */
+  readonly auth: ClerkAuth;
+  /** Resolves the verified Clerk identity to the internal `players.id` (design D6). */
+  readonly players: PlayerResolver;
   /** The service base logger (capability `structured-logging`, design D3); `buildContext` derives the per-request child. */
   readonly log: Logger;
 }
 
 /**
  * The per-request context: the shared deps plus the resolved caller `playerId` and the
- * request's `traceId` (design D4). `log` is the request-bound child carrying `traceId`,
- * narrowing the base logger inherited from {@link ApiDeps}.
+ * request's `traceId` (design D4). `playerId` is `null` for an unauthenticated caller —
+ * {@link protectedProcedure} narrows it to a non-null id (and rejects when it is `null`)
+ * so every player-scoped procedure body sees a guaranteed id. `log` is the request-bound
+ * child carrying `traceId`, narrowing the base logger inherited from {@link ApiDeps}.
  */
 export interface ApiContext extends ApiDeps {
-  readonly playerId: string;
+  readonly playerId: string | null;
   readonly traceId: string;
 }
 
@@ -90,3 +98,16 @@ export class ApiError extends TRPCError {
 export function apiError(code: ApiErrorCode, message?: string): ApiError {
   return new ApiError(code, message);
 }
+
+/**
+ * A player-scoped procedure (capability `auth-identity`): it rejects an unauthenticated
+ * caller (`ctx.playerId === null`) with the typed `unauthorized` error before any body
+ * runs, and narrows `ctx.playerId` to a non-null string for the procedure. Identity is
+ * resolved once at the centralized seam ({@link file://./context.ts} `buildContext`), so
+ * a procedure never re-reads the request. Reference/liveness procedures stay on
+ * {@link publicProcedure}.
+ */
+export const protectedProcedure = publicProcedure.use(({ ctx, next }) => {
+  if (ctx.playerId === null) throw apiError('unauthorized');
+  return next({ ctx: { playerId: ctx.playerId } });
+});

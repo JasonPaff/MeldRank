@@ -1,14 +1,14 @@
 import { AccountGetMeInputSchema, AccountGetMeOutputSchema } from '@meldrank/shared';
-import { publicProcedure, router } from '../trpc';
+import { protectedProcedure, router } from '../trpc';
 
 /**
  * Account procedures (capability `account-and-reference-api`). `getMe` resolves the
- * caller over the centralized stub identity (`ctx.playerId`, design D5) and returns the
- * local player view. Onboarding is reported complete in this stubbed slice; unit E
- * swaps the identity source without touching this body.
+ * authenticated caller over the centralized identity seam (`ctx.playerId`, the internal
+ * `players.id`; design D5) and returns the local player view. Onboarding is reported
+ * complete (no onboarding flow this change); the display identity is Clerk-derived.
  */
 export const accountRouter = router({
-  getMe: publicProcedure
+  getMe: protectedProcedure
     .input(AccountGetMeInputSchema)
     .output(AccountGetMeOutputSchema)
     .query(({ ctx }) => ({ playerId: ctx.playerId, onboardingComplete: true })),

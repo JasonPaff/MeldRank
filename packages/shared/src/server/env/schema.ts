@@ -50,7 +50,7 @@ const seamSecretsShape = {
   SEAT_TICKET_SECRET: z.string().min(1),
 } as const;
 
-/** `apps/api` — tRPC backend: database, Redis, Clerk secret, the spawn seam, listen port. */
+/** `apps/api` — tRPC backend: database, Redis, Clerk secrets, the spawn seam, listen port. */
 export const apiEnv = z.object({
   ...commonEnv.shape,
   ...databaseShape,
@@ -58,6 +58,8 @@ export const apiEnv = z.object({
   ...portShape,
   ...seamSecretsShape,
   CLERK_SECRET_KEY: z.string().min(1),
+  /** Clerk webhook signing secret (svix); verifies inbound `POST /api/webhooks/clerk` payloads. */
+  CLERK_WEBHOOK_SECRET: z.string().min(1),
   /** Base URL of the match service's internal spawn endpoint (the API calls it). */
   MATCH_INTERNAL_URL: z.url(),
   /** The single allowlisted browser origin (`apps/web`) the API serves CORS to. */

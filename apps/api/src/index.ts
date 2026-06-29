@@ -3,6 +3,7 @@ import { loadApiEnv } from '@meldrank/shared/server';
 import { appRouter, type AppRouter } from './routers';
 import { buildContext, createApiRuntime } from './context';
 import { corsHeaders, CORS_PREFLIGHT_STATUS } from './cors';
+import { CLERK_WEBHOOK_PATH, handleClerkWebhookRequest } from './webhook';
 
 /**
  * The tRPC backend's **standalone HTTP entry** (unit D). It validates the environment
@@ -37,6 +38,19 @@ if (process.env.NODE_ENV !== 'test') {
       if (req.method === 'OPTIONS') {
         res.writeHead(CORS_PREFLIGHT_STATUS);
         res.end();
+        return;
+      }
+      // The public Clerk webhook is a non-tRPC route: it verifies its own svix signature
+      // and bypasses the Bearer identity edge, so it is handled here before the tRPC
+      // adapter consumes the request body.
+      if (req.method === 'POST' && req.url?.split('?', 1)[0] === CLERK_WEBHOOK_PATH) {
+        void handleClerkWebhookRequest(req, res, { secret: env.CLERK_WEBHOOK_SECRET, players: deps.players, log }).catch(
+          (err: unknown) => {
+            log.error({ err }, 'clerk webhook handler failed');
+            if (!res.headersSent) res.writeHead(500);
+            res.end();
+          },
+        );
         return;
       }
       next();

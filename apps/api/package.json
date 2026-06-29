@@ -12,8 +12,11 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@clerk/backend": "^3.8.4",
     "@meldrank/shared": "workspace:*",
-    "@trpc/server": "^11.18.0"
+    "@trpc/server": "^11.18.0",
+    "drizzle-orm": "0.45.2",
+    "svix": "^1.96.1"
   },
   "devDependencies": {
     "@types/node": "^22.20.0",
