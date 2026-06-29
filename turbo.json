@@ -13,10 +13,18 @@
     },
     "@meldrank/web#build": {
       "dependsOn": ["^build"],
-      // Inlined into the client bundle by `next build`, so it affects output and
-      // must be part of the cache key — a changed key correctly busts the cache.
-      // Strict env mode would otherwise hide it from the build process entirely.
-      "env": ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"],
+      // Strict env mode hides undeclared vars from the build process, so both
+      // Clerk keys must be declared here — Turbo would otherwise strip them even
+      // when Vercel has them set, and they'd be invisible to `next build`.
+      //   - NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: inlined into the client bundle, so
+      //     it affects output and belongs in the cache key.
+      //   - CLERK_SECRET_KEY: NOT inlined (server runtime secret), but the
+      //     build-time guard in next.config.mjs reads it to fail fast when a
+      //     Vercel deploy is missing it. It is in `env` (not `passThroughEnv`) on
+      //     purpose: remote caching is enabled, and only by folding it into the
+      //     cache key does a removed secret force a cache miss so the guard
+      //     actually re-runs — otherwise a stale "passed" build would replay.
+      "env": ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_SECRET_KEY"],
       "outputs": [".next/**", "!.next/cache/**"]
     },
     "typecheck": {
