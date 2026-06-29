@@ -21,6 +21,7 @@ export { appRouter, type AppRouter };
 if (process.env.NODE_ENV !== 'test') {
   const env = loadApiEnv();
   const { deps, db, redis } = createApiRuntime(env);
+  const log = deps.log;
   const headers = corsHeaders(env.WEB_APP_ORIGIN);
 
   const port = env.PORT ?? 3001;
@@ -43,5 +44,5 @@ if (process.env.NODE_ENV !== 'test') {
     createContext: ({ req }) => buildContext(deps, { headers: req.headers }),
   });
   server.listen(port);
-  console.log(`[api] tRPC listening on :${port} (db + redis clients ready: ${!!db && !!redis})`);
+  log.info({ port, db: !!db, redis: !!redis }, 'tRPC listening');
 }

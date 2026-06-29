@@ -78,3 +78,21 @@ describe('spawn gateway — failure path', () => {
     expect(result.body).not.toHaveProperty('roomId');
   });
 });
+
+describe('spawn gateway — trace correlation (design D4)', () => {
+  it('threads a supplied trace id onto the room creation options', async () => {
+    const createRoom = vi.fn<CreateRoomFn>().mockResolvedValue({ roomId: 'room-7' });
+    const result = await handleSpawnRequest(deps(createRoom), SECRET, validRequest, 'trace-abc');
+
+    expect(result.status).toBe(200);
+    expect(createRoom).toHaveBeenCalledWith('match', expect.objectContaining({ traceId: 'trace-abc' }));
+  });
+
+  it('creates the room normally when no trace id is supplied (best-effort, never gating)', async () => {
+    const createRoom = vi.fn<CreateRoomFn>().mockResolvedValue({ roomId: 'room-8' });
+    const result = await handleSpawnRequest(deps(createRoom), SECRET, validRequest);
+
+    expect(result).toEqual({ status: 200, body: { roomId: 'room-8' } });
+    expect(createRoom).toHaveBeenCalledWith('match', expect.objectContaining({ traceId: undefined }));
+  });
+});

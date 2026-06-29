@@ -1,4 +1,5 @@
-import { createDb, createRedis, type loadApiEnv } from '@meldrank/shared/server';
+import { randomUUID } from 'node:crypto';
+import { createDb, createLogger, createRedis, TRACE_ID_HEADER, type loadApiEnv } from '@meldrank/shared/server';
 import { resolveStubIdentity, type StubIdentitySource } from './identity';
 import { createCasualTableStore } from './lobby/store';
 import { createTicketMinter } from './lobby/tickets';
@@ -31,6 +32,7 @@ export interface ApiRuntime {
  * the static variant catalog. Both serving entries call this exactly once.
  */
 export function createApiRuntime(env: ApiEnv): ApiRuntime {
+  const log = createLogger('api', { level: env.LOG_LEVEL, pretty: env.NODE_ENV !== 'production' });
   const db = createDb(env);
   const redis = createRedis(env);
 
@@ -38,7 +40,7 @@ export function createApiRuntime(env: ApiEnv): ApiRuntime {
   const tickets = createTicketMinter({ secret: env.SEAT_TICKET_SECRET });
   const spawn = createHttpSpawnClient({ baseUrl: env.MATCH_INTERNAL_URL, secret: env.INTERNAL_SPAWN_SECRET });
 
-  return { deps: { variants: variantCatalog, store, spawn, tickets }, db, redis };
+  return { deps: { variants: variantCatalog, store, spawn, tickets, log }, db, redis };
 }
 
 /**
@@ -49,5 +51,12 @@ export function createApiRuntime(env: ApiEnv): ApiRuntime {
  */
 export function buildContext(deps: ApiDeps, source: StubIdentitySource): ApiContext {
   const { playerId } = resolveStubIdentity(source);
-  return { ...deps, playerId };
+  // Originate the request's trace id (design D4): inherit an inbound
+  // `x-meldrank-trace-id` (forward-compatible with a future web origin), else generate
+  // one. Bind it to the request logger so every procedure line — and the failure log —
+  // shares this id, and carry it onto the internal spawn hop.
+  const inbound = source.headers?.[TRACE_ID_HEADER];
+  const headerTrace = (Array.isArray(inbound) ? inbound[0] : inbound)?.trim();
+  const traceId = headerTrace !== undefined && headerTrace !== '' ? headerTrace : randomUUID();
+  return { ...deps, playerId, traceId, log: deps.log.child({ traceId }) };
 }

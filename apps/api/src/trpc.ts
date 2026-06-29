@@ -1,5 +1,6 @@
 import { initTRPC, TRPCError } from '@trpc/server';
 import type { ApiErrorCode } from '@meldrank/shared';
+import type { Logger } from '@meldrank/shared/server';
 import type { CasualTableStore } from './lobby/store';
 import type { TicketMinter } from './lobby/tickets';
 import type { SpawnClient } from './spawn/client';
@@ -19,18 +20,45 @@ export interface ApiDeps {
   readonly store: CasualTableStore;
   readonly spawn: SpawnClient;
   readonly tickets: TicketMinter;
+  /** The service base logger (capability `structured-logging`, design D3); `buildContext` derives the per-request child. */
+  readonly log: Logger;
 }
 
-/** The per-request context: the shared deps plus the resolved caller `playerId`. */
+/**
+ * The per-request context: the shared deps plus the resolved caller `playerId` and the
+ * request's `traceId` (design D4). `log` is the request-bound child carrying `traceId`,
+ * narrowing the base logger inherited from {@link ApiDeps}.
+ */
 export interface ApiContext extends ApiDeps {
   readonly playerId: string;
+  readonly traceId: string;
 }
 
 const t = initTRPC.context<ApiContext>().create();
 
 export const router = t.router;
-export const publicProcedure = t.procedure;
 export const createCallerFactory = t.createCallerFactory;
+
+/**
+ * Every procedure logs its failures through the request-bound `ctx.log` (capability
+ * `structured-logging`, design D3): a faulted call emits one structured line carrying
+ * the procedure `path`, `type`, the tRPC `code`, and the error itself (`{ err }`).
+ * Server faults log at `error`; expected client errors (the typed taxonomy) at `warn`.
+ * Living on the base procedure means both serving entries and `createCaller` tests get
+ * it uniformly, without an adapter-specific hook.
+ */
+export const publicProcedure = t.procedure.use(async ({ ctx, path, type, next }) => {
+  const result = await next();
+  if (!result.ok) {
+    const fields = { path, type, code: result.error.code, err: result.error };
+    if (result.error.code === 'INTERNAL_SERVER_ERROR') {
+      ctx.log.error(fields, 'procedure failed');
+    } else {
+      ctx.log.warn(fields, 'procedure failed');
+    }
+  }
+  return result;
+});
 
 /** Map the shared error taxonomy onto tRPC's transport error codes. */
 const TAXONOMY_TO_TRPC = {

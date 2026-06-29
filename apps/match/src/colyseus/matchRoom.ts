@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { Room, ServerError, type Client, type Delayed } from 'colyseus';
 import { SINGLE_DECK_CUTTHROAT, SINGLE_DECK_PARTNERS, type SeatTicket, type SpawnSeat, type VariantDefinition } from '@meldrank/shared';
-import { verifySeatTicket, type DatabaseClient, type RedisClient } from '@meldrank/shared/server';
+import { createLogger, verifySeatTicket, type DatabaseClient, type Logger, type RedisClient } from '@meldrank/shared/server';
 import { viewFor } from '@meldrank/engine';
 import { brain, type BotContext } from '@meldrank/bots';
 import { fromHex, toHex } from '@meldrank/fairness';
@@ -71,6 +71,20 @@ export interface MatchCreateOptions {
   readonly seating?: readonly SpawnSeat[];
   /** HMAC secret used to verify seat tickets at {@link MatchRoom.onAuth}. */
   readonly seatTicketSecret?: string;
+  /**
+   * The cross-service correlation id (capability `structured-logging`, design D4),
+   * threaded from the API's `x-meldrank-trace-id` header through the spawn route. Bound
+   * onto the room logger in {@link MatchRoom.onCreate} so the room's lifecycle logs
+   * share the API's id for that spawn. Absent when no header was supplied — a no-op.
+   */
+  readonly traceId?: string;
+  /**
+   * The service base logger (capability `structured-logging`, design D3), injected via
+   * the room definition defaults in `apps/match/src/index.ts`. `onCreate` derives the
+   * per-room child (`{ roomId, traceId }`) from it. Absent in a bare test harness — the
+   * room then falls back to a silent logger so it never logs without a backend wired.
+   */
+  readonly logger?: Logger;
 }
 
 /** The join options a connection presents — carrying the signed seat ticket. */
@@ -111,6 +125,14 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
    */
   private seatTicketSecret?: string;
   /**
+   * The per-room structured logger (capability `structured-logging`, design D3/D4): the
+   * injected service base logger bound with `{ roomId, traceId }` in {@link onCreate},
+   * so every operational event rides those fields without re-interpolating them. Per-
+   * event specifics (`seat`, `err`, …) are passed as the structured object at the call
+   * site. Set in `onCreate`; a bare test harness with no injected logger gets a silent one.
+   */
+  private log!: Logger;
+  /**
    * The single pending wall-clock timer (design D3): the acting seat's turn expiry or
    * the open contribution window's close. Re-armed from the new state after every
    * step; only ever one is outstanding.
@@ -145,6 +167,17 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
     this.db = options?.db;
     this.redis = options?.redis;
     this.seatTicketSecret = options?.seatTicketSecret;
+    // Per-room child logger (design D3/D4): bind the creation-time identifiers — the
+    // Colyseus `roomId` and the spawn-threaded `traceId` (a no-op when absent, design
+    // D4). `matchId` is the DB id assigned at persistence; it rides the persist lines
+    // where it becomes known. Without an injected base logger (a bare test harness),
+    // fall back to a logger silenced at runtime so the room never logs with no backend wired.
+    let base = options?.logger;
+    if (base === undefined) {
+      base = createLogger('match');
+      base.level = 'silent';
+    }
+    this.log = base.child({ roomId: this.roomId, traceId: options?.traceId });
 
     const state = new RoomMetadata();
     state.lifecycle = this.core.lifecycle;
@@ -329,13 +362,13 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
     try {
       intent = brain(viewFor(engine, seat), ctx);
     } catch (error) {
-      console.error(`[MatchRoom ${this.roomId}] bot brain failed for seat ${seat}`, error);
+      this.log.error({ seat, err: error }, 'bot brain failed');
       return;
     }
     const correlationId = `bot:${seat}:${this.clock.currentTime}`;
     const step = submitIntent(this.core, assignment.connectionId, intent, correlationId, serverSeed, this.now);
     if (step.effects.some((effect) => effect.kind === 'reject')) {
-      console.error(`[MatchRoom ${this.roomId}] bot intent rejected for seat ${seat}: ${JSON.stringify(intent)}`);
+      this.log.error({ seat, intent }, 'bot intent rejected');
     }
     this.run(step);
   }
@@ -430,7 +463,7 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
    * the leaver-penalty layer, logged until that consumer lands.
    */
   private onAbandonmentSignal(seat: number, timeoutCount: number): void {
-    console.warn(`[MatchRoom ${this.roomId}] abandonment signal: seat ${seat} reached ${timeoutCount} timeouts`);
+    this.log.warn({ seat, timeoutCount }, 'abandonment signal');
   }
 
   /**
@@ -438,8 +471,7 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
    * with the real persistence + result-emission consumer; for now it is logged.
    */
   private onAbandonResolution(reason: ResolutionReason, outcomes: readonly SeatOutcome[]): void {
-    const summary = outcomes.map((o) => `${o.seat}:${o.outcome}`).join(', ');
-    console.warn(`[MatchRoom ${this.roomId}] abandonment resolution: ${reason} (${summary})`);
+    this.log.warn({ reason, outcomes: outcomes.map((o) => ({ seat: o.seat, outcome: o.outcome })) }, 'abandonment resolution');
   }
 
   /**
@@ -448,7 +480,7 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
    * Moderation doc; this slice only fires the hook, logged until that consumer lands.
    */
   private onAbandonEvent(seat: number, reason: ResolutionReason): void {
-    console.warn(`[MatchRoom ${this.roomId}] abandon event: seat ${seat} (${reason})`);
+    this.log.warn({ seat, reason }, 'abandon event');
   }
 
   /**
@@ -462,7 +494,7 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
    * signal that the takeover happened.
    */
   private onBotTakeoverRequested(seat: number): void {
-    console.warn(`[MatchRoom ${this.roomId}] bot takeover: seat ${seat} now played by the in-process bot brain`);
+    this.log.warn({ seat }, 'bot takeover: seat now played by the in-process bot brain');
   }
 
   /**
@@ -474,7 +506,7 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
    */
   private onPersist(record: MatchRecord): void {
     if (this.db === undefined || this.redis === undefined) {
-      console.error(`[MatchRoom ${this.roomId}] persist skipped: no durable backend wired`);
+      this.log.error('persist skipped: no durable backend wired');
       void this.disconnect();
       return;
     }
@@ -493,11 +525,12 @@ export class MatchRoom extends Room<{ state: RoomMetadata }> {
       try {
         const matchId = await persistMatchRecord(db, record);
         await publishMatchResult(redis, buildMatchResultEvent(record, matchId));
+        this.log.info({ matchId, attempt }, 'match persisted');
         this.run(markPersisted(this.core));
         return;
       } catch (error) {
         if (attempt >= PERSIST_MAX_ATTEMPTS) {
-          console.error(`[MatchRoom ${this.roomId}] durable write failed after ${PERSIST_MAX_ATTEMPTS} attempts; disposing`, error);
+          this.log.error({ err: error, attempts: PERSIST_MAX_ATTEMPTS }, 'durable write failed; disposing');
           void this.disconnect();
           return;
         }

@@ -29,7 +29,12 @@ export function isFull(table: CasualTable): boolean {
  * caller fills the last seat), so the `open → spawning` guard failing means a genuine
  * concurrent state change → surfaced as `conflict`.
  */
-export async function spawnIfFull(deps: ApiDeps, table: CasualTable, callerPlayerId: string): Promise<SpawnFlowResult> {
+export async function spawnIfFull(
+  deps: ApiDeps,
+  table: CasualTable,
+  callerPlayerId: string,
+  traceId?: string,
+): Promise<SpawnFlowResult> {
   if (!isFull(table)) {
     return { table, ticket: null };
   }
@@ -41,7 +46,9 @@ export async function spawnIfFull(deps: ApiDeps, table: CasualTable, callerPlaye
 
   let roomId: string;
   try {
-    const response = await deps.spawn.spawn(toSpawnRequest(spawning.table));
+    // Carry the request's trace id onto the internal spawn hop (design D4) so the room
+    // the match service creates binds the same id its lifecycle logs will share.
+    const response = await deps.spawn.spawn(toSpawnRequest(spawning.table), traceId);
     roomId = response.roomId;
   } catch {
     await deps.store.rollbackToOpen(table.id);
