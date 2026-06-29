@@ -14,7 +14,7 @@ import {
   CasualQuickPlayOutputSchema,
   DEFAULT_BOT_DIFFICULTY,
 } from '@meldrank/shared';
-import { apiError, publicProcedure, router } from '../trpc';
+import { apiError, protectedProcedure, router } from '../trpc';
 import { spawnIfFull } from '../lobby/spawn-flow';
 import { DEFAULT_VARIANT_ID } from '../variants';
 
@@ -27,7 +27,7 @@ import { DEFAULT_VARIANT_ID } from '../variants';
  * seat ticket.
  */
 export const casualRouter = router({
-  createTable: publicProcedure
+  createTable: protectedProcedure
     .input(CasualCreateTableInputSchema)
     .output(CasualCreateTableOutputSchema)
     .mutation(async ({ ctx, input }) => {
@@ -38,7 +38,7 @@ export const casualRouter = router({
       return ctx.store.create(variant, ctx.playerId);
     }),
 
-  listOpenTables: publicProcedure
+  listOpenTables: protectedProcedure
     .input(CasualListOpenTablesInputSchema)
     .output(CasualListOpenTablesOutputSchema)
     .query(async ({ ctx, input }) => {
@@ -46,7 +46,7 @@ export const casualRouter = router({
       return { items: [...page.items], nextCursor: page.nextCursor };
     }),
 
-  joinSeat: publicProcedure
+  joinSeat: protectedProcedure
     .input(CasualJoinSeatInputSchema)
     .output(CasualJoinSeatOutputSchema)
     .mutation(async ({ ctx, input }) => {
@@ -57,7 +57,7 @@ export const casualRouter = router({
       return spawnIfFull(ctx, claim.table, ctx.playerId, ctx.traceId);
     }),
 
-  leaveTable: publicProcedure
+  leaveTable: protectedProcedure
     .input(CasualLeaveTableInputSchema)
     .output(CasualLeaveTableOutputSchema)
     .mutation(async ({ ctx, input }) => {
@@ -68,7 +68,7 @@ export const casualRouter = router({
       return table;
     }),
 
-  addBot: publicProcedure
+  addBot: protectedProcedure
     .input(CasualAddBotInputSchema)
     .output(CasualAddBotOutputSchema)
     .mutation(async ({ ctx, input }) => {
@@ -80,7 +80,7 @@ export const casualRouter = router({
       return spawnIfFull(ctx, claim.table, ctx.playerId, ctx.traceId);
     }),
 
-  quickPlay: publicProcedure
+  quickPlay: protectedProcedure
     .input(CasualQuickPlayInputSchema)
     .output(CasualQuickPlayOutputSchema)
     .mutation(async ({ ctx }) => {

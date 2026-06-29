@@ -9,14 +9,14 @@ import { parseEnv } from './load';
  * reach `@meldrank/shared/server`.
  *
  * App URLs default to localhost so a build with no environment still succeeds;
- * the Clerk publishable key is optional until the Auth & Identity change wires
- * authentication.
+ * the Clerk publishable key is required now that authentication is wired (Auth &
+ * Identity) — the client cannot mount `ClerkProvider` without it.
  */
 export const webEnv = z.object({
   NEXT_PUBLIC_APP_URL: z.url().default('http://localhost:3000'),
   NEXT_PUBLIC_API_URL: z.url().default('http://localhost:3001'),
   NEXT_PUBLIC_MATCH_URL: z.url().default('http://localhost:2567'),
-  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string().min(1).optional(),
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string().min(1),
 });
 
 export type WebEnv = z.infer<typeof webEnv>;

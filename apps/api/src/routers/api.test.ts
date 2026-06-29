@@ -5,6 +5,8 @@ import { ApiError, type ApiContext } from '../trpc';
 import { applyClaim, CLAIM_SCRIPT, createCasualTableStore, type LobbyRedis } from '../lobby/store';
 import { createTicketMinter } from '../lobby/tickets';
 import { variantCatalog } from '../variants';
+import type { ClerkAuth } from '../identity';
+import type { PlayerResolver } from '../players';
 import type { SpawnClient } from '../spawn/client';
 import { createCaller } from './index';
 
@@ -104,20 +106,40 @@ function harness() {
   // A silenced logger keeps the procedure-failure middleware quiet under test.
   const log = createLogger('api');
   log.level = 'silent';
-  const deps: Omit<ApiContext, 'playerId'> = { variants: variantCatalog, store, spawn, tickets, log, traceId: 'test-trace' };
+  // The auth + resolver deps are inert here: `createCaller` injects `playerId` directly,
+  // bypassing `buildContext`. The identity edge itself is covered in `identity.test.ts`.
+  const auth: ClerkAuth = { verifyBearer: () => Promise.resolve(null) };
+  const players: PlayerResolver = {
+    resolve: () => Promise.resolve('unused'),
+    upsert: () => Promise.resolve('unused'),
+  };
+  const deps: Omit<ApiContext, 'playerId'> = {
+    variants: variantCatalog,
+    store,
+    spawn,
+    tickets,
+    auth,
+    players,
+    log,
+    traceId: 'test-trace',
+  };
   return {
     store,
     spawn,
-    caller: (playerId: string) => createCaller({ ...deps, playerId }),
+    caller: (playerId: string | null) => createCaller({ ...deps, playerId }),
   };
 }
 
 const PARTNERS = SINGLE_DECK_PARTNERS.id;
 
 describe('account + variant reference procedures', () => {
-  it('getMe returns the resolved stub identity', async () => {
+  it('getMe returns the resolved authenticated identity', async () => {
     const me = await harness().caller('p1').account.getMe();
     expect(me).toEqual({ playerId: 'p1', onboardingComplete: true });
+  });
+
+  it('getMe rejects an unauthenticated caller with a typed unauthorized', async () => {
+    await expect(harness().caller(null).account.getMe()).rejects.toMatchObject({ apiErrorCode: 'unauthorized' });
   });
 
   it('variant.list returns the canonical variants and get resolves by id', async () => {

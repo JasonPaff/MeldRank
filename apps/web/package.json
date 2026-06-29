@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@base-ui-components/react": "^1.0.0-rc.0",
+    "@clerk/nextjs": "^7.5.9",
     "@colyseus/sdk": "^0.17.26",
     "@meldrank/api": "workspace:*",
     "@meldrank/engine": "workspace:*",

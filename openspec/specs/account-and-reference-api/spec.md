@@ -6,14 +6,24 @@ Defines the read-only account and reference tRPC procedures that resolve the cal
 
 ## Requirements
 
-### Requirement: account.getMe resolves the caller over stubbed identity
+### Requirement: account.getMe resolves the caller over authenticated identity
 
-The API SHALL expose `account.getMe`, which resolves the caller's identity through the centralized stub-identity seam and returns the local player view (at minimum the stub `playerId` and onboarding state). In this slice identity is stubbed — derived from a request header or a development default — and the resolution is the single seam unit E later swaps for Clerk without changing the procedure body.
+The API SHALL expose `account.getMe`, which resolves the caller's identity through the
+centralized identity seam and returns the local player view (at minimum the internal
+`playerId` and onboarding state). Identity is the authenticated Clerk caller resolved to
+an internal `players.id` UUID (`auth-identity`); the resolution remains the single seam,
+and the procedure body is unchanged from the stubbed slice. Onboarding SHALL be reported
+complete (no onboarding flow this change); the display identity is Clerk-derived.
 
-#### Scenario: getMe returns the stubbed caller identity
+#### Scenario: getMe returns the authenticated caller identity
 
-- **WHEN** `account.getMe` is called
-- **THEN** it returns a player view carrying the resolved stub `playerId` and onboarding state
+- **WHEN** `account.getMe` is called by an authenticated caller
+- **THEN** it returns a player view carrying the resolved internal `playerId` and onboarding state
+
+#### Scenario: getMe rejects an unauthenticated caller
+
+- **WHEN** `account.getMe` is called with no valid Clerk session
+- **THEN** it is rejected with the typed `unauthorized` error
 
 #### Scenario: Identity resolution is centralized
 

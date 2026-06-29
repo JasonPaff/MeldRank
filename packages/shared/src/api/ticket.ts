@@ -7,15 +7,17 @@ import { z } from 'zod';
  * client carries it on the wire; the HMAC sign/verify helper that produces and
  * checks the signature is server-only and lives in `@meldrank/shared/server`.
  *
- * `playerId` is a stubbed identifier this slice; a later slice swaps only where it
- * originates (Clerk), leaving the ticket shape and the verification unchanged.
+ * `playerId` is the seated player's internal `players.id` UUID — resolved from the
+ * authenticated Clerk caller at the API identity edge (Auth & Identity; design D1). The
+ * match room treats it as an opaque string, so the value changed but the ticket shape and
+ * verification did not.
  */
 export const SeatTicketSchema = z.object({
   /** The spawned room the ticket admits the holder to. */
   roomId: z.string().min(1),
   /** The seat index the holder is bound to (server-authoritative; the client cannot choose). */
   seat: z.number().int().nonnegative(),
-  /** The seated player (a stub identifier this slice). */
+  /** The seated player's internal `players.id` UUID (resolved from the Clerk caller). */
   playerId: z.string().min(1),
   /** The frozen variant the room runs, carried for the client's reference. */
   variantId: z.string().min(1),

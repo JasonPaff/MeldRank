@@ -1,5 +1,5 @@
 import { MatchGetActiveInputSchema, MatchGetActiveOutputSchema } from '@meldrank/shared';
-import { publicProcedure, router } from '../trpc';
+import { protectedProcedure, router } from '../trpc';
 
 /**
  * Match procedures (capability `casual-lobby-api`). `getActive` returns the caller's
@@ -7,7 +7,7 @@ import { publicProcedure, router } from '../trpc';
  * caller is in no live match.
  */
 export const matchRouter = router({
-  getActive: publicProcedure
+  getActive: protectedProcedure
     .input(MatchGetActiveInputSchema)
     .output(MatchGetActiveOutputSchema)
     .query(async ({ ctx }) => {

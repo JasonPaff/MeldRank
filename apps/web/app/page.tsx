@@ -1,5 +1,6 @@
 'use client';
 
+import { UserButton } from '@clerk/nextjs';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { $path } from 'next-typesafe-url';
 import { useRouter } from 'next/navigation';
@@ -58,6 +59,11 @@ export default function Home() {
         flex min-h-screen flex-col items-center justify-center gap-6 p-8
       "
     >
+      {/* Sign-out affordance: Clerk's account menu, which includes Sign out. */}
+      <header className="absolute top-4 right-4">
+        <UserButton />
+      </header>
+
       <h1 className="text-2xl font-semibold tracking-tight">MeldRank</h1>
 
       {/* Identity — the first real browser→API round-trip. */}

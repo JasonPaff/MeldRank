@@ -52,4 +52,10 @@ jobs:
         # Give the worker a generous ceiling so the first (uncached) lint succeeds.
         env:
           SYNCKIT_TIMEOUT: 60000
+          # apps/web's env schema requires the Clerk publishable key, which
+          # `next build` validates while prerendering /_not-found. The key is
+          # public (NEXT_PUBLIC_*, inlined into the client bundle), so it lives as
+          # a repository *variable*, not a secret. The real web deploy gets its
+          # value from Vercel; this only satisfies CI's quality-gate build.
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
         run: pnpm turbo run lint typecheck test build

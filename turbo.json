@@ -13,6 +13,10 @@
     },
     "@meldrank/web#build": {
       "dependsOn": ["^build"],
+      // Inlined into the client bundle by `next build`, so it affects output and
+      // must be part of the cache key — a changed key correctly busts the cache.
+      // Strict env mode would otherwise hide it from the build process entirely.
+      "env": ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"],
       "outputs": [".next/**", "!.next/cache/**"]
     },
     "typecheck": {
