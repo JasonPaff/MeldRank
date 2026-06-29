@@ -107,6 +107,33 @@ For each of `apps/match`, `apps/bots`, and `apps/api`:
 > service via `MATCH_INTERNAL_URL` (its Fly URL, or Fly private networking later).
 > `apps/bots` is a headless worker with no inbound service.
 
+## CI / CD
+
+Two GitHub Actions workflows own automation:
+
+- **`.github/workflows/ci.yml` (CI — checks only).** Runs the quality gate
+  (`lint`, `typecheck`, `test`, `build`, plus `env:check`) on every pull request
+  and on pushes to `main`. It never deploys.
+- **`.github/workflows/deploy.yml` (CD — Fly only).** On every push to `main` it
+  detects which Fly apps were *affected* by the push (via Turborepo's dependency
+  graph, so a change to a shared package like `@meldrank/shared` redeploys every
+  dependent) and runs `flyctl deploy --remote-only` for just those apps. Each
+  deploy runs from the repo root so the Docker build context is the whole
+  workspace (see §5).
+
+**`apps/web` is not deployed by Actions** — it ships through Vercel's native Git
+integration (preview deployments on PRs, production on push to `main`). Keep that
+integration enabled on the Vercel `apps/web` project; no workflow drives it.
+
+### Required GitHub configuration
+
+- **Repository secret `FLY_API_TOKEN`** — a Fly deploy token with access to the
+  three apps. Create one with `fly tokens create deploy` (or a broader org token)
+  and add it under **Settings → Secrets and variables → Actions**.
+- The deploy jobs target a GitHub **`production`** environment. It is created
+  automatically on first use; add required reviewers there if you later want a
+  manual approval gate before Fly deploys.
+
 ## Verifying the foundation locally
 
 - `cp .env.example .env` and fill in real values.
