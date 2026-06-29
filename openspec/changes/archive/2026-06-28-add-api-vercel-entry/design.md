@@ -169,7 +169,7 @@ follow-up change.
   needed.
 - **Hand-off to unit H — Vercel project linking is misconfigured.** The
   `meld-rank-api` project has **Root Directory = `apps/api`** in its dashboard
-  settings, but the `.vercel` link lives *inside* `apps/api`. Running
+  settings, but the `.vercel` link lives _inside_ `apps/api`. Running
   `vercel build --cwd apps/api` then applies the root directory a second time and
   Vercel builds the wrong (empty) directory as a static site. Before the real
   deploy, H must reconcile this — either **clear the dashboard Root Directory**

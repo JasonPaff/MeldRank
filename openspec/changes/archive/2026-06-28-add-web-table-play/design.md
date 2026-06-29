@@ -70,7 +70,7 @@ single derived render model to the view components.
   wholesale — the server always sends a complete view, never a patch, so the client never
   reconstructs state and there is no client-side reducer over engine events.
 
-*Alternative considered:* drive everything off the synced schema and derive the rest.
+_Alternative considered:_ drive everything off the synced schema and derive the rest.
 Rejected — the schema deliberately carries no cards (hidden-info boundary), so card
 content must come from the per-seat `view` messages regardless.
 
@@ -93,14 +93,14 @@ pending. `reject` → apply its authoritative `view` (re-sync to truth), surface
 The available action is a pure function of `public.phase`, `public.seatToAct`, and the
 viewer's seat:
 
-| `public.phase` | when `seatToAct === viewer` | intent emitted |
-| --- | --- | --- |
-| `Auction` | bid above current, or pass | `bid` / `pass` |
-| `TrumpDeclaration`* | choose a suit | `declareTrump` |
-| `TrickPlay` | play a legal card from own hand | `playCard` |
-| other / not your turn | render only, no actions | — |
+| `public.phase`        | when `seatToAct === viewer`     | intent emitted |
+| --------------------- | ------------------------------- | -------------- |
+| `Auction`             | bid above current, or pass      | `bid` / `pass` |
+| `TrumpDeclaration`\*  | choose a suit                   | `declareTrump` |
+| `TrickPlay`           | play a legal card from own hand | `playCard`     |
+| other / not your turn | render only, no actions         | —              |
 
-*phase name read from the engine's `LifecyclePhase`; the mapping is verified against the
+\*phase name read from the engine's `LifecyclePhase`; the mapping is verified against the
 engine during implementation. Legal-move enumeration mirrors what the bot brain already
 does over a `FilteredView` (`@meldrank/bots`); F2a may render all own-hand cards and lean
 on server `reject` for fine-grained legality rather than fully replicating

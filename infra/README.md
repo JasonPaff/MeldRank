@@ -13,15 +13,15 @@ through each platform's secret store (`vercel env`, `fly secrets`).
 
 ## Resource → environment variable map
 
-| Resource            | Provides                                                                        | Consumed by            |
-| ------------------- | ------------------------------------------------------------------------------- | ---------------------- |
-| **Neon** (Postgres) | `DATABASE_URL`                                                                  | api, match, bots       |
-| **Upstash** (Redis) | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`                            | api, match, bots       |
-| **Clerk** (auth)    | `CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`                         | api (secret), web (pk) |
-| **Vercel** (web)    | hosts `apps/web`; set `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_API_URL`              | web                    |
-| **Fly.io** (match)  | hosts `apps/match`; reads `DATABASE_URL`, `UPSTASH_*`, `INTERNAL_SPAWN_SECRET`, `SEAT_TICKET_SECRET`, `PORT` | match     |
-| **Fly.io** (bots)   | hosts `apps/bots`; reads `DATABASE_URL`, `UPSTASH_*`                            | bots                   |
-| **Fly.io** (api)    | hosts `apps/api`; reads `DATABASE_URL`, `UPSTASH_*`, `INTERNAL_SPAWN_SECRET`, `SEAT_TICKET_SECRET`, `MATCH_INTERNAL_URL`, `WEB_APP_ORIGIN`, `PORT` | api |
+| Resource            | Provides                                                                                                                                           | Consumed by            |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| **Neon** (Postgres) | `DATABASE_URL`                                                                                                                                     | api, match, bots       |
+| **Upstash** (Redis) | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`                                                                                               | api, match, bots       |
+| **Clerk** (auth)    | `CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`                                                                                            | api (secret), web (pk) |
+| **Vercel** (web)    | hosts `apps/web`; set `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_API_URL`                                                                                 | web                    |
+| **Fly.io** (match)  | hosts `apps/match`; reads `DATABASE_URL`, `UPSTASH_*`, `INTERNAL_SPAWN_SECRET`, `SEAT_TICKET_SECRET`, `PORT`                                       | match                  |
+| **Fly.io** (bots)   | hosts `apps/bots`; reads `DATABASE_URL`, `UPSTASH_*`                                                                                               | bots                   |
+| **Fly.io** (api)    | hosts `apps/api`; reads `DATABASE_URL`, `UPSTASH_*`, `INTERNAL_SPAWN_SECRET`, `SEAT_TICKET_SECRET`, `MATCH_INTERNAL_URL`, `WEB_APP_ORIGIN`, `PORT` | api                    |
 
 `NODE_ENV` is set by each platform (Vercel/Fly set `production`); locally it
 defaults to `development`.

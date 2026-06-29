@@ -12,9 +12,10 @@ This change is **F2a — the playable table**: the first of unit F's two remaini
 slices (**F2a play** → F2b resilience). It is scoped to the **minimum that lights the
 Colyseus seam and flips the loop green**: join the spawned room with the lobby's seat
 ticket, render the per-seat filtered view, drive the human intent loop, and let 1 human
-+ 3 bots finish a Single-Deck Partners game whose result persists to Neon. Clocks,
-reconnect/resync, and cold-load ticket rehydration are deliberately held for F2b so this
-slice does exactly one risky thing.
+
+- 3 bots finish a Single-Deck Partners game whose result persists to Neon. Clocks,
+  reconnect/resync, and cold-load ticket rehydration are deliberately held for F2b so this
+  slice does exactly one risky thing.
 
 ## What Changes
 

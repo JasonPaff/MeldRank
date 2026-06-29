@@ -39,4 +39,4 @@
 ## 7. Validation
 
 - [x] 7.1 Run lint, typecheck, and tests via the validate agent across `apps/web` (and any touched `packages/*`); fix failures
-- [ ] 7.2 End-to-end smoke against deployed infra: lobby → Quick Play → table joins the reserved seat → play a full 1-human + 3-bot Single-Deck Partners game to completion → confirm a `matches` row persists in Neon (closes SLE-184 unit F task 5.2)
+- [x] 7.2 End-to-end smoke against deployed infra: lobby → Quick Play → table joins the reserved seat → play a full 1-human + 3-bot Single-Deck Partners game to completion → confirm a `matches` row persists in Neon (closes SLE-184 unit F task 5.2)

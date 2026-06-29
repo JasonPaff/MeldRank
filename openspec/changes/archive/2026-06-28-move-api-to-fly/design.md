@@ -113,7 +113,7 @@ project is decommissioned manually in H (not a repo edit).
   `INTERNAL_SPAWN_SECRET`; Fly private networking is available as later hardening.
 - **Architecture deviation from Tech Architecture §7** → Recorded as a ruled fork;
   to be reflected in the Linear Tech Architecture doc. The deviation actually
-  *increases* consistency (all three server apps share one Docker + `tsx` runtime
+  _increases_ consistency (all three server apps share one Docker + `tsx` runtime
   model).
 
 ## Migration Plan
@@ -123,7 +123,7 @@ project is decommissioned manually in H (not a repo edit).
    deletes Vercel files and reverts the tsconfig include — no TS behavior change, so
    the existing `api.test.ts` is unaffected).
 3. Optionally validate the image locally with `fly deploy --config apps/api/fly.toml
-   --dockerfile apps/api/Dockerfile --build-only` (or `docker build`) from the repo
+--dockerfile apps/api/Dockerfile --build-only` (or `docker build`) from the repo
    root.
 4. Unit H provisions `meldrank-api` on Fly (secrets via `fly secrets`), points the
    web app's `NEXT_PUBLIC_API_URL` at the Fly URL, and decommissions the
