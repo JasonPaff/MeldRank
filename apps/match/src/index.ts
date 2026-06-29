@@ -1,6 +1,6 @@
 import { Server, matchMaker } from 'colyseus';
 import { healthy } from '@meldrank/shared';
-import { createDb, createRedis, loadMatchEnv } from '@meldrank/shared/server';
+import { createDb, createLogger, createRedis, loadMatchEnv } from '@meldrank/shared/server';
 import { MatchRoom } from './colyseus/matchRoom';
 import { INTERNAL_SPAWN_PATH, mountSpawnRoute, type RouteRegistrar, type SpawnGatewayDeps } from './gateway/spawn';
 
@@ -30,6 +30,7 @@ function createGameServer(): Server {
   // Validate the environment once at boot (fail-fast), then construct the foundation
   // clients and the spawn gateway, and inject them into the room definition.
   const env = loadMatchEnv();
+  const log = createLogger('match', { level: env.LOG_LEVEL, pretty: env.NODE_ENV !== 'production' });
   const db = createDb(env);
   const redis = createRedis(env);
 
@@ -43,14 +44,16 @@ function createGameServer(): Server {
     // narrowed structurally to the {@link RouteRegistrar} surface the route needs.
     express: (app: RouteRegistrar) => mountSpawnRoute(app, spawnDeps),
   });
-  server.define('match', MatchRoom, { db, redis, seatTicketSecret: env.SEAT_TICKET_SECRET });
+  // Inject the base logger into the room definition (design D3); each room derives its
+  // own `{ roomId, traceId }` child in `onCreate`.
+  server.define('match', MatchRoom, { db, redis, seatTicketSecret: env.SEAT_TICKET_SECRET, logger: log });
 
   const port = env.PORT ?? 2567;
   const status = healthy('match');
   void server.listen(port);
-  console.log(
-    `[match] Colyseus listening on :${port} (${status.ok ? 'ok' : 'down'}; ` +
-      `room 'match' registered with db + redis: ${!!db && !!redis}; internal spawn route at ${INTERNAL_SPAWN_PATH})`,
+  log.info(
+    { port, ok: status.ok, db: !!db, redis: !!redis, spawnRoute: INTERNAL_SPAWN_PATH },
+    'Colyseus listening',
   );
   return server;
 }

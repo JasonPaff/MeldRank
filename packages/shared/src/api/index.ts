@@ -27,6 +27,7 @@ export {
   type CasualTable,
 } from './table';
 export { SeatTicketSchema, SignedSeatTicketSchema, type SeatTicket, type SignedSeatTicket } from './ticket';
+export { TRACE_ID_FIELD, TRACE_ID_HEADER } from './trace';
 export {
   SpawnSeatSchema,
   RoomSpawnRequestSchema,

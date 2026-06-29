@@ -54,7 +54,7 @@ export const casualRouter = router({
       if (!claim.ok) {
         throw apiError(claim.reason);
       }
-      return spawnIfFull(ctx, claim.table, ctx.playerId);
+      return spawnIfFull(ctx, claim.table, ctx.playerId, ctx.traceId);
     }),
 
   leaveTable: publicProcedure
@@ -77,7 +77,7 @@ export const casualRouter = router({
       if (!claim.ok) {
         throw apiError(claim.reason);
       }
-      return spawnIfFull(ctx, claim.table, ctx.playerId);
+      return spawnIfFull(ctx, claim.table, ctx.playerId, ctx.traceId);
     }),
 
   quickPlay: publicProcedure
@@ -97,7 +97,7 @@ export const casualRouter = router({
         }
         table = claim.table;
       }
-      const result = await spawnIfFull(ctx, table, ctx.playerId);
+      const result = await spawnIfFull(ctx, table, ctx.playerId, ctx.traceId);
       if (result.ticket === null) {
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'quick-play produced no seat ticket' });
       }

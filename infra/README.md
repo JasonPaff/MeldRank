@@ -134,6 +134,74 @@ integration enabled on the Vercel `apps/web` project; no workflow drives it.
   automatically on first use; add required reviewers there if you later want a
   manual approval gate before Fly deploys.
 
+## Viewing logs (Fly.io)
+
+The three Node services log through one shared structured logger
+(`@meldrank/shared/server` → `createLogger`). **In production every line is
+newline-delimited JSON on stdout**, which Fly captures — so logs are queryable by
+field, not just substring. Each line carries `level`, `msg`, a `service`
+(`api` / `match` / `bots`), and the context bound for that unit of work
+(`roomId` + `traceId` on a match room, `traceId` on an API request, `workerId` on a
+bot). Known secrets (connection strings, the seam secrets, seat tickets) are
+redacted to `[REDACTED]` before they ever reach stdout.
+
+> Locally (`NODE_ENV` ≠ `production`) the same logger pretty-prints instead, so
+> `pnpm dev` output is human-readable; only the deployed services emit JSON.
+
+### Tail or snapshot a service
+
+```bash
+fly logs --app meldrank-api      # live tail (Ctrl-C to stop)
+fly logs --app meldrank-match
+fly logs --app meldrank-bots
+
+fly logs --app meldrank-api --no-tail   # recent buffer, then exit (no follow)
+fly logs --app meldrank-match -r ord    # restrict to a region
+fly logs --app meldrank-match -i <machine-id>   # one machine instance
+```
+
+The Fly dashboard shows the same stream in a browser: `fly dashboard --app meldrank-api`
+(→ Monitoring), useful for ad-hoc time-range scrolling.
+
+### Filter the structured fields
+
+Each Fly line wraps our JSON message; isolate and query it with `jq`. For example,
+to watch only warnings/errors from the match service:
+
+```bash
+fly logs --app meldrank-match | grep -o '{.*}' | jq 'select(.level >= 40)'
+```
+
+(`pino` levels are numeric: `trace`=10, `debug`=20, `info`=30, `warn`=40,
+`error`=50, `fatal`=60.)
+
+### Follow one table across the service boundary (`traceId`)
+
+The API mints a `traceId` per request and forwards it on the internal spawn hop, and
+the match room binds it onto its own logs — so a single `traceId` joins the API-side
+spawn request to that room's lifecycle. To trace one table end-to-end, grab the
+`traceId` from the API's spawn log, then filter both apps for it:
+
+```bash
+fly logs --app meldrank-api   | grep -o '{.*}' | jq 'select(.traceId=="<id>")'
+fly logs --app meldrank-match | grep -o '{.*}' | jq 'select(.traceId=="<id>")'
+```
+
+> Today `traceId` spans the api→match spawn hop only; the web origin and full
+> request-scoped propagation are deferred (see the `structured-logging` change). The
+> durable `matchId` (assigned at persistence) remains the cross-system join key.
+
+### Change verbosity without a redeploy
+
+`LOG_LEVEL` (optional, validated) sets the threshold; unset defaults to `info` in
+production. Set it as a secret to raise/lower a service's verbosity — Fly restarts
+the app to apply it:
+
+```bash
+fly secrets set --app meldrank-match LOG_LEVEL=debug    # fatal|error|warn|info|debug|trace
+fly secrets unset --app meldrank-match LOG_LEVEL        # back to the default
+```
+
 ## Verifying the foundation locally
 
 - `cp .env.example .env` and fill in real values.

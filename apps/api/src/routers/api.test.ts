@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CasualTableSchema, SINGLE_DECK_PARTNERS, type RoomSpawnRequest } from '@meldrank/shared';
+import { createLogger } from '@meldrank/shared/server';
 import { ApiError, type ApiContext } from '../trpc';
 import { applyClaim, CLAIM_SCRIPT, createCasualTableStore, type LobbyRedis } from '../lobby/store';
 import { createTicketMinter } from '../lobby/tickets';
@@ -100,7 +101,10 @@ function harness() {
   const store = createCasualTableStore({ redis, newId: () => `t${++ids}`, now: () => clock++ });
   const tickets = createTicketMinter({ secret: 'seat-secret', now: () => 5_000, ttlMs: 60_000 });
   const spawn = fakeSpawn();
-  const deps: Omit<ApiContext, 'playerId'> = { variants: variantCatalog, store, spawn, tickets };
+  // A silenced logger keeps the procedure-failure middleware quiet under test.
+  const log = createLogger('api');
+  log.level = 'silent';
+  const deps: Omit<ApiContext, 'playerId'> = { variants: variantCatalog, store, spawn, tickets, log, traceId: 'test-trace' };
   return {
     store,
     spawn,

@@ -1,5 +1,11 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { INTERNAL_SECRET_HEADER, INTERNAL_SPAWN_PATH, RoomSpawnRequestSchema, type RoomSpawnRequest } from '@meldrank/shared';
+import {
+  INTERNAL_SECRET_HEADER,
+  INTERNAL_SPAWN_PATH,
+  RoomSpawnRequestSchema,
+  TRACE_ID_HEADER,
+  type RoomSpawnRequest,
+} from '@meldrank/shared';
 import type { MatchCreateOptions } from '../colyseus/matchRoom';
 
 export { INTERNAL_SPAWN_PATH, INTERNAL_SECRET_HEADER };
@@ -46,6 +52,7 @@ export async function handleSpawnRequest(
   deps: SpawnGatewayDeps,
   providedSecret: string | undefined,
   rawBody: unknown,
+  traceId?: string,
 ): Promise<SpawnResult> {
   if (deps.secret === '' || providedSecret === undefined || providedSecret !== deps.secret) {
     return { status: 401, body: { error: 'unauthorized' } };
@@ -55,16 +62,20 @@ export async function handleSpawnRequest(
     return { status: 400, body: { error: 'invalid spawn request' } };
   }
   try {
-    const room = await deps.createRoom('match', toCreateOptions(parsed.data));
+    const room = await deps.createRoom('match', toCreateOptions(parsed.data, traceId));
     return { status: 200, body: { roomId: room.roomId } };
   } catch {
     return { status: 500, body: { error: 'room creation failed' } };
   }
 }
 
-/** Map a validated spawn request onto the `MatchRoom` creation options. */
-export function toCreateOptions(request: RoomSpawnRequest): MatchCreateOptions {
-  return { variantId: request.variantId, seating: request.seating, bots: request.bots };
+/**
+ * Map a validated spawn request onto the `MatchRoom` creation options, carrying the
+ * optional trace correlation id (design D4) so the created room can bind it to its
+ * logger. A missing `traceId` is left off the options — best-effort, never gating.
+ */
+export function toCreateOptions(request: RoomSpawnRequest, traceId?: string): MatchCreateOptions {
+  return { variantId: request.variantId, seating: request.seating, bots: request.bots, traceId };
 }
 
 /**
@@ -91,8 +102,10 @@ export function createSpawnRouteHandler(deps: SpawnGatewayDeps) {
   return (req: IncomingMessage, res: ServerResponse): void => {
     const header = req.headers[INTERNAL_SECRET_HEADER];
     const provided = Array.isArray(header) ? header[0] : header;
+    const traceHeader = req.headers[TRACE_ID_HEADER];
+    const traceId = Array.isArray(traceHeader) ? traceHeader[0] : traceHeader;
     void readJsonBody(req)
-      .then((body) => handleSpawnRequest(deps, provided, body))
+      .then((body) => handleSpawnRequest(deps, provided, body, traceId))
       .then((result) => {
         res.writeHead(result.status, { 'content-type': 'application/json' });
         res.end(JSON.stringify(result.body));

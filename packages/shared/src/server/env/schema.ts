@@ -13,6 +13,13 @@ import { z } from 'zod';
  */
 export const commonEnv = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  /**
+   * Optional minimum log level for the shared structured logger (capability
+   * `structured-logging`). When unset, the logger applies its environment-appropriate
+   * default (`info` in production, `debug` otherwise); an unrecognized value fails
+   * validation fast at boot like any other invalid variable.
+   */
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).optional(),
 });
 
 /** Neon Postgres connection string. */

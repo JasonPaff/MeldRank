@@ -97,6 +97,16 @@ export default tseslint.config(
     },
   },
   {
+    // Structured-logging guard (capability `structured-logging`, design D6): the three
+    // Node services log through the shared `@meldrank/shared/server` logger, never raw
+    // `console`. Scoped to their `src`; test files are exempted via `ignores` below.
+    files: ['apps/match/src/**/*.ts', 'apps/api/src/**/*.ts', 'apps/bots/src/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    rules: {
+      'no-console': 'error',
+    },
+  },
+  {
     // Vitest suites: catch focused/skipped tests and malformed assertions. Tests
     // routinely poke at `any`/`unknown` fixtures and malformed inputs on purpose,
     // so the `no-unsafe-*` family is relaxed here to keep that intentional.

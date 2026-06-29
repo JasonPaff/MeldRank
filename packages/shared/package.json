@@ -30,11 +30,13 @@
     "@noble/hashes": "^2.0.0",
     "@upstash/redis": "^1.38.0",
     "drizzle-orm": "^0.45.2",
+    "pino": "^10.3.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^22.20.0",
     "eslint": "^10.5.0",
+    "pino-pretty": "^13.1.3",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   }
