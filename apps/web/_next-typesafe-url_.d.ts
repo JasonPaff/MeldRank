@@ -9,6 +9,7 @@ declare module "@@@next-typesafe-url" {
   import type { InferRoute, StaticRoute } from "next-typesafe-url";
 
   interface DynamicRouter {
+    "/table/pending/[tableId]": InferRoute<import("./app/table/pending/[tableId]/route-type").RouteType>;
     "/table/[roomId]": InferRoute<import("./app/table/[roomId]/route-type").RouteType>;
   }
 

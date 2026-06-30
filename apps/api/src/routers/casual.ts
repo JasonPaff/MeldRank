@@ -4,6 +4,8 @@ import {
   CasualAddBotOutputSchema,
   CasualCreateTableInputSchema,
   CasualCreateTableOutputSchema,
+  CasualGetTableInputSchema,
+  CasualGetTableOutputSchema,
   CasualJoinSeatInputSchema,
   CasualJoinSeatOutputSchema,
   CasualLeaveTableInputSchema,
@@ -62,6 +64,20 @@ export const casualRouter = router({
     .output(CasualLeaveTableOutputSchema)
     .mutation(async ({ ctx, input }) => {
       const table = await ctx.store.releaseSeat(input.tableId, ctx.playerId);
+      if (table === null) {
+        throw apiError('not-found', `unknown table: ${input.tableId}`);
+      }
+      return table;
+    }),
+
+  // Read-only single-table read (design D2): the waiting room polls this for a table's
+  // `Filling` occupancy and to detect its flip to `live` — states `listOpenTables` (a
+  // full table drops off) and `match.getActive` (only `live`) cannot show. No mutation.
+  getTable: protectedProcedure
+    .input(CasualGetTableInputSchema)
+    .output(CasualGetTableOutputSchema)
+    .query(async ({ ctx, input }) => {
+      const table = await ctx.store.get(input.tableId);
       if (table === null) {
         throw apiError('not-found', `unknown table: ${input.tableId}`);
       }

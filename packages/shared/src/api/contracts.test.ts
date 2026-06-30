@@ -3,8 +3,11 @@ import { SINGLE_DECK_PARTNERS } from '../variant/canonical';
 import * as isomorphicRoot from '../index';
 import { signSeatTicket, verifySeatTicket } from '../server/api/ticket';
 import {
+  CasualGetTableInputSchema,
+  CasualGetTableOutputSchema,
   CasualTableSchema,
   CursorPaginationInputSchema,
+  MatchGetActiveOutputSchema,
   RoomSpawnRequestSchema,
   RoomSpawnResponseSchema,
   SeatTicketSchema,
@@ -53,6 +56,36 @@ describe('contract schema round-trips', () => {
     expect(CursorPaginationInputSchema.parse({})).toEqual({ limit: 20 });
     const page = paginated(CasualTableSchema).parse({ items: [], nextCursor: null });
     expect(page).toEqual({ items: [], nextCursor: null });
+  });
+
+  it('exposes the casual.getTable input/output schemas (tableId in, table record out)', () => {
+    expect(CasualGetTableInputSchema.parse({ tableId: 'table-1' })).toEqual({ tableId: 'table-1' });
+    expect(() => CasualGetTableInputSchema.parse({ tableId: '' })).toThrow();
+    const table: CasualTable = {
+      id: 'table-1',
+      variantId: SINGLE_DECK_PARTNERS.id,
+      variant: SINGLE_DECK_PARTNERS,
+      status: 'live',
+      seats: [{ kind: 'human', playerId: 'p1' }, { kind: 'bot', difficulty: 'medium' }],
+      roomId: 'room-9',
+      createdAt: 1_000,
+      version: 3,
+    };
+    expect(CasualGetTableOutputSchema.parse(table)).toEqual(table);
+  });
+
+  it('carries an optional seat ticket on the match.getActive output', () => {
+    const handle = { roomId: 'room-9', seat: 2, variantId: SINGLE_DECK_PARTNERS.id };
+    // The ticket is optional: a live match without one (the F1 Rejoin shape) still parses.
+    expect(MatchGetActiveOutputSchema.parse(handle)).toEqual(handle);
+    // A null result (no live match) still parses.
+    expect(MatchGetActiveOutputSchema.parse(null)).toBeNull();
+    // With a ticket, the field round-trips intact.
+    const ticket = {
+      token: 'signed.token',
+      payload: { roomId: 'room-9', seat: 2, playerId: 'p1', variantId: SINGLE_DECK_PARTNERS.id, exp: 10_000 },
+    };
+    expect(MatchGetActiveOutputSchema.parse({ ...handle, ticket })).toEqual({ ...handle, ticket });
   });
 });
 

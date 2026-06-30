@@ -56,6 +56,8 @@ export {
   CasualJoinSeatOutputSchema,
   CasualLeaveTableInputSchema,
   CasualLeaveTableOutputSchema,
+  CasualGetTableInputSchema,
+  CasualGetTableOutputSchema,
   CasualAddBotInputSchema,
   CasualAddBotOutputSchema,
   CasualQuickPlayInputSchema,
