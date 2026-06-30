@@ -28,7 +28,7 @@ complete (no onboarding flow this change); the display identity is Clerk-derived
 #### Scenario: Identity resolution is centralized
 
 - **WHEN** any `player`-scoped procedure needs the caller's identity
-- **THEN** it obtains `playerId` from the shared stub-identity resolver, not by re-reading the request inline
+- **THEN** it obtains `playerId` from the shared identity resolver, not by re-reading the request inline
 
 ### Requirement: variant.list returns the resolvable variants
 
