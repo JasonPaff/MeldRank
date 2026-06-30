@@ -75,6 +75,9 @@ export const CasualJoinSeatOutputSchema = CasualActionResultSchema;
 export const CasualLeaveTableInputSchema = z.object({ tableId: z.string().min(1) });
 export const CasualLeaveTableOutputSchema = CasualTableSchema;
 
+export const CasualGetTableInputSchema = z.object({ tableId: z.string().min(1) });
+export const CasualGetTableOutputSchema = CasualTableSchema;
+
 export const CasualAddBotInputSchema = z.object({
   tableId: z.string().min(1),
   seat: z.number().int().nonnegative(),
@@ -93,11 +96,17 @@ export type CasualQuickPlayOutput = z.infer<typeof CasualQuickPlayOutputSchema>;
 
 /* ── match ────────────────────────────────────────────────────────────────── */
 
-/** The caller's currently-live, reconnectable match: its room handle and seat. */
+/**
+ * The caller's currently-live, reconnectable match: its room handle, seat, and a
+ * freshly minted signed seat `ticket` for a warm `joinById`. The ticket is
+ * **optional** so the additive change does not break callers that tolerate its
+ * absence (the F1 Rejoin); it is present whenever a live match is returned.
+ */
 export const ActiveMatchSchema = z.object({
   roomId: z.string().min(1),
   seat: z.number().int().nonnegative(),
   variantId: z.string().min(1),
+  ticket: SignedSeatTicketSchema.optional(),
 });
 
 export type ActiveMatch = z.infer<typeof ActiveMatchSchema>;

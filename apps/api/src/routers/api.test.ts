@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CasualTableSchema, SINGLE_DECK_PARTNERS, type RoomSpawnRequest } from '@meldrank/shared';
-import { createLogger } from '@meldrank/shared/server';
+import { createLogger, verifySeatTicket } from '@meldrank/shared/server';
 import { ApiError, type ApiContext } from '../trpc';
 import { applyClaim, CLAIM_SCRIPT, createCasualTableStore, type LobbyRedis } from '../lobby/store';
 import { createTicketMinter } from '../lobby/tickets';
@@ -255,16 +255,36 @@ describe('full-table spawn flow', () => {
   });
 });
 
+describe('casual.getTable', () => {
+  it('returns a known table by id', async () => {
+    const h = harness();
+    const table = await h.caller('p1').casual.createTable({ variantId: PARTNERS });
+    const got = await h.caller('p2').casual.getTable({ tableId: table.id });
+    expect(got).toEqual(table);
+  });
+
+  it('rejects an unknown table id with a typed not-found', async () => {
+    await expect(harness().caller('p1').casual.getTable({ tableId: 'ghost' })).rejects.toMatchObject({
+      apiErrorCode: 'not-found',
+    });
+  });
+});
+
 describe('match.getActive', () => {
-  it('is empty for a caller in no live match', async () => {
+  it('is empty (no ticket) for a caller in no live match', async () => {
     expect(await harness().caller('p1').match.getActive()).toBeNull();
   });
 
-  it('returns the room handle + seat for a caller in a live match', async () => {
+  it('returns the room handle, seat, and a verifiable fresh ticket for a live caller', async () => {
     const h = harness();
     await h.caller('p1').casual.quickPlay();
-    expect(await h.caller('p1').match.getActive()).toEqual({ roomId: 'room-1', seat: 0, variantId: PARTNERS });
-    // A different player is in no live match.
+    const active = await h.caller('p1').match.getActive();
+    expect(active).toMatchObject({ roomId: 'room-1', seat: 0, variantId: PARTNERS });
+    // The minted ticket verifies for this caller's room/seat/player (warm joinById credential).
+    expect(active?.ticket).toBeDefined();
+    const verified = verifySeatTicket(active!.ticket!.token, 'seat-secret', 5_000);
+    expect(verified).toMatchObject({ roomId: 'room-1', seat: 0, playerId: 'p1', variantId: PARTNERS });
+    // A different player is in no live match → null, no ticket.
     expect(await h.caller('p2').match.getActive()).toBeNull();
   });
 });
