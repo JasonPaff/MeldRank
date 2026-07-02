@@ -195,7 +195,6 @@
           "sourcePath": "references/why.md"
         }
       ],
-      "installedAt": "2026-06-25T18:24:29.749Z",
       "installReason": "direct",
       "name": "atk-guide",
       "type": "skill",
@@ -211,7 +210,6 @@
           "sourcePath": "SKILL.md"
         }
       ],
-      "installedAt": "2026-06-25T18:24:52.152Z",
       "installReason": "direct",
       "name": "conventional-commit",
       "org": "agentic-toolkit",
@@ -228,7 +226,6 @@
           "sourcePath": "dev-commands-rule.md"
         }
       ],
-      "installedAt": "2026-06-25T18:25:03.770Z",
       "installReason": "direct",
       "name": "dev-commands-rule",
       "org": "agentic-toolkit",
@@ -245,10 +242,47 @@
           "sourcePath": "validate.md"
         }
       ],
-      "installedAt": "2026-06-25T18:26:40.435Z",
       "installReason": "direct",
       "name": "validate",
       "org": "agentic-toolkit",
+      "type": "agent",
+      "version": "1.0.0"
+    },
+    {
+      "configEntries": [
+        {
+          "checksum": "3a0c1791257b563b3d503f0b2112369702f03f341f12dad48f10ee39b411e69d",
+          "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/notify-on-stop-hook.sh",
+          "file": ".claude/settings.json",
+          "key": "hooks.Stop"
+        }
+      ],
+      "dependencies": [],
+      "description": "Sends a desktop notification when Claude Code finishes responding (Stop event)",
+      "files": [
+        {
+          "checksum": "cb30668f6ed12660bf45a7e979475c056ba3f6ef0e0330f92338aeb9fc3eca7a",
+          "installedPath": ".claude/hooks/notify-on-stop-hook.sh",
+          "sourcePath": "notify-on-stop-hook.sh"
+        }
+      ],
+      "installReason": "direct",
+      "name": "notify-on-stop-hook",
+      "type": "hook",
+      "version": "1.0.2"
+    },
+    {
+      "dependencies": [],
+      "description": "Researches library documentation and code examples via Context7 MCP server without filling up the main context window",
+      "files": [
+        {
+          "checksum": "600539b12f7db7785072ba21d5b7a2a201bddc4affd1526f264067f36cf0edef",
+          "installedPath": ".claude/agents/context7-researcher.md",
+          "sourcePath": "context7-researcher.md"
+        }
+      ],
+      "installReason": "direct",
+      "name": "context7-researcher",
       "type": "agent",
       "version": "1.0.0"
     }
